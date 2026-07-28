@@ -3,7 +3,8 @@ mmg_toolbox tests
 Test experiment folder functions
 """
 
-
+import numpy as np
+from pytest import approx
 from mmg_toolbox.utils.experiment import Experiment
 from mmg_toolbox.nexus.nexus_scan import NexusScan, NexusDataHolder
 from . import only_dls_file_system
@@ -22,6 +23,27 @@ def test_file_loader():
     scan_range = range(1032120, 1032130)
     scans = exp.scans(*scan_range)
     assert len([scn for scn in scans if isinstance(scn, NexusScan)]) == len(scans)
+
+
+@only_dls_file_system
+def test_find_scans():
+    exp = Experiment(DIR + '/i16/cm37262-1')
+    scan_nos = exp.get_nearby_scan_numbers(1032337)
+    assert len(scan_nos) == 20
+    assert scan_nos[-1] - scan_nos[0] == 42
+    scans = exp.find_scans(*scan_nos, **{'_cmd': 'scan stokes_fly'})
+    assert len(scans) == 4
+
+
+@only_dls_file_system
+def test_get_value_changes():
+    exp = Experiment(DIR + '/i16/cm37262-1')
+    scans = exp.scans(*range(1033447, 1033453))
+    data = exp.get_value_changes(*scans)
+    print('\n'.join(f"{name} : {np.std(array):.2f}" for name, array in data.items()))
+    assert len(data) == 10
+    assert next(iter(data)).endswith('stokes')
+    assert np.std(data['stokes']) == approx(94.55868, abs=0.0001)
 
 
 @only_dls_file_system
@@ -52,6 +74,12 @@ def test_plots():
     exp = Experiment(DIR + '/i16/cm37262-1', instrument='i16')
     exp.plot(1032120)
     # exp.plot_scans()
+
+
+@only_dls_file_system
+def test_2d_mesh():
+    exp = Experiment('/dls/science/groups/das/ExampleData/i16/2dscans_2026/', instrument='i16')
+    pass
 
 
 
