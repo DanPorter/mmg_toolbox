@@ -4,6 +4,7 @@ Plot Manager for the Scan object
 
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.collections import QuadMesh
 from ..nexus.nexus_scan import NexusScan
 from .matplotlib import (
     set_plot_defaults, new_plot, plot_line, plot_image, plot_2d_surface,
@@ -125,7 +126,7 @@ class ScanPlotManager:
 
     def image(self, index: int | tuple | slice | None = None, xaxis: str = 'axes',
               axes: plt.Axes | None = None, clim: tuple[float, float] | None = None,
-              cmap: str = DEFAULT_CMAP, colorbar: bool = False, **kwargs) -> plt.Axes:
+              cmap: str = DEFAULT_CMAP, colorbar: bool = False, log: bool = False, **kwargs) -> plt.Axes:
         """
         Plot image in matplotlib figure (if available)
         :param index: int, detector image index, 0-length of scan, if None, use centre index
@@ -134,6 +135,7 @@ class ScanPlotManager:
         :param clim: [min, max] colormap cut-offs (None for auto)
         :param cmap: str colormap name (None for auto)
         :param colorbar: False/ True add colorbar to plot
+        :param log: False/ True plot log10 of the image
         :param kwargs: additional arguments for plot_detector_image
         :return: axes object
         """
@@ -142,6 +144,7 @@ class ScanPlotManager:
 
         # image data
         im = self.scan.image(index)
+        im = np.log10(im + 1) if log else im
         if im is None:
             im = np.zeros((101, 101))
         if index is None or index == 'sum':
@@ -158,7 +161,8 @@ class ScanPlotManager:
                       verticalalignment='center',
                       transform=axes.transAxes)
         if colorbar:
-            plt.colorbar(ax=axes)
+            im = next(c for c in axes.get_children() if isinstance(c, QuadMesh))
+            plt.colorbar(im, ax=axes, label='log10(counts)' if log else 'counts')
         ttl = '%s\n%s [%s] = %s' % (self.scan.title(), xname, index, xvalue)
         axes.set_title(ttl)
         return axes
