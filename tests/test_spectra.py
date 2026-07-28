@@ -335,6 +335,7 @@ def test_i16_vortex_spectra():
     assert xmld.calculate_signal_ratio() == approx({'pfy': 0.517388, 'tfy': 0.416337}, 0.001)
 
 
+@only_dls_file_system
 def test_i16_vortex_spectra_with_roi():
     # energy scan
     f1 = FILES_DICT['i16 xsp3 energy scan lh']
