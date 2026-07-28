@@ -16,6 +16,7 @@ from hdfmap import NexusLoader, NexusMap, load_hdf
 from hdfmap.eval_functions import dataset2data, dataset2str
 
 from mmg_toolbox.beamline_metadata.hdfmap_generic import HdfMapMMGMetadata as Md
+from mmg_toolbox.beamline_metadata.hdfmap_generic import ROI_SUFFIXES
 from mmg_toolbox.beamline_metadata.config import beamline_config, C
 from mmg_toolbox.nexus.instrument_model import NXInstrumentModel
 from mmg_toolbox.nexus.nexus_functions import get_dataset_value, nx_find, nx_find_all
@@ -107,6 +108,24 @@ class NexusScan(NexusLoader):
         map_data = self.map.info_names(arrays=arrays, values=values, combined=combined,
                                        metadata=metadata, scannables=scannables, image_data=image_data)
         return local_data + alternate_data + map_data
+
+    def rois(self, append: str = '_total') -> list[str]:
+        """
+        Return ROI expressions available in scan namespace
+
+            rois = [scan.eval(roi) for roi in scan.rois('_total')]
+
+        :param append: str to append to each ROI name, e.g. '_total', '_max', '_min', '_mean'
+        :return: list of ROI names that can be used in eval.
+        """
+        # search for ROIs in HdfMap expressions
+        alternate_name_rois = {
+            next((name.removesuffix(sfx) for sfx in ROI_SUFFIXES if name.endswith(sfx)), name)
+            for name, expression in self.map._alternate_names.items()
+            if expression.startswith('d_')
+        }
+        return [roi + append for roi in alternate_name_rois]
+
 
     def scan_number(self) -> int:
         return get_scan_number(self.filename)
@@ -409,7 +428,7 @@ class NexusScan(NexusLoader):
         :return: SpectraContainer
         """
         return load_xas_scans(self.filename, sample_name=sample_name, element_edge=element_edge,
-                              mode=mode, dls_loader=dls_loader)[0]
+                              mode=mode, dls_loader=dls_loader, hdfmap=self.map)[0]
 
     def instrument_model(self) -> NXInstrumentModel:
         """Build and instrument model from NeXus file"""
