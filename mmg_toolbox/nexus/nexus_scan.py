@@ -207,8 +207,17 @@ class NexusScan(NexusLoader):
         with self.load_hdf() as hdf:
             return [dataset2str(hdf[self.map.combined[name]], units=units) for name in args]
 
-    def image(self, index: int | tuple | slice | str | None = None) -> np.ndarray:
-        """Return image or selection from default detector"""
+    def image(self, index: int | str | None = None) -> np.ndarray:
+        """
+        Return image or selection from default detector
+
+            im = scan.image(0)  # First image
+            im = scan.image(None)  # middle image
+            im = scan.image('sum')  # sum of all images
+
+        :param index: point in the scan to show the image, 'sum' gives sum over all images, None gives the middle image
+        :return: (n,m) array
+        """
         if not self.map.image_data:
             raise ValueError(f'{repr(self)} contains no image data')
         with self.load_hdf() as hdf:
@@ -261,6 +270,12 @@ class NexusScan(NexusLoader):
         n, bins = np.histogram(np.log10(image[image>0].flatten()), bins=n_bins)
         return 10 ** bins[np.argmax(n)]
 
+    def get_max_index(self, expression: str = 'IMAGE') -> tuple[float, tuple[int, ...]]:
+        """Return the index and value of the maximum pixel in a detector image or volume"""
+        data = self.eval(expression)
+        max_idx = tuple(int(v) for v in np.unravel_index(np.argmax(data), data.shape))
+        return float(data[max_idx]), max_idx
+
     def table(self, delimiter=', ', string_spec='', format_spec='f', default_decimals=8) -> str:
         """Return data table"""
         with self.load_hdf() as hdf:
@@ -271,7 +286,6 @@ class NexusScan(NexusLoader):
         """
         Return plot axis data and label for given axis name
 
-        E.G.
             >>> data, label = scan.get_plot_axis('axes', flatten=True)
 
         :param hdf: h5py.File or h5py.Group
