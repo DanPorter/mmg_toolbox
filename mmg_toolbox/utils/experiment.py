@@ -8,6 +8,7 @@ import hdfmap
 
 from ..utils.misc_functions import numbers2string
 from ..utils.env_functions import scan_number_mapping, last_folder_update, get_beamline_from_directory
+from ..utils.surface_grid import coordinates_to_grid, interpolate_to_grid
 from ..beamline_metadata.config import beamline_config, C, add_roi
 from ..nexus.nexus_scan import NexusScan, NexusDataHolder
 from ..xas import SpectraContainer, find_similar_measurements, average_polarised_scans
@@ -147,6 +148,8 @@ class Experiment:
 
     def scans(self, *scan_files: ScanFile, hdf_map: hdfmap.NexusMap | None = None) -> list[NexusScan]:
         """Read Nexus files as lazy NexusScan. All files use the same HdfMap, based on the first scan"""
+        if scan_files and isinstance(scan_files[0], (NexusScan, NexusDataHolder)):
+            return list(scan_files)
         filenames = [self.get_scan_filename(scan_file) for scan_file in scan_files]
         if not filenames:
             filenames = self.all_scan_files()
@@ -214,11 +217,28 @@ class Experiment:
         scans = self.scans(*scan_files, hdf_map=hdf_map)
         data_fields = [self.config[C.scan_description]] if data_fields is None else data_fields
         data = {name: [] for name in data_fields}
+        expression = ','.join(data_fields)
         for scan in scans:
-            with scan.load_hdf() as hdf:
-                for name in data_fields:
-                    data[name].append(scan.map.eval(hdf, name, default=default))
+            values = scan.eval(expression, default=default)  # use eval to ensure local_data is available
+            for name, value in zip(data_fields, values):
+                data[name].append(value)
         return data
+
+    def join_scan_arrays(self, *scan_files: ScanFile, hdf_map: hdfmap.NexusMap | None = None,
+                         data_fields: list[str] | None = None, default: np.ndarray = np.array([0.0])) -> tuple[np.ndarray, ...]:
+        """
+        Join data from scans - return array of values for each scan, for each data field
+
+            cmd, temp = exp.join_scan_arrays(*scan_files, data_fields=['scan_command', 'Ta'])
+
+        :param scan_files: set of scan numbers or filenames
+        :param hdf_map: if given, uses this hdfmap rather than generating one.
+        :param data_fields: list of data fields
+        :param default: default value
+        :return: Numpy arrays
+        """
+        data = self.join_scan_data(*scan_files, hdf_map=hdf_map, data_fields=data_fields, default=default)
+        return tuple(np.array(array) for array in data.values())
 
     def get_value_changes(self, *scan_files: ScanFile, hdf_map: hdfmap.NexusMap | None = None,
                           omit_change: bool = True, sort: bool = True) -> dict[str, np.ndarray]:
@@ -274,7 +294,7 @@ class Experiment:
 
     def generate_mesh(self, *scan_files: ScanFile, hdf_map: hdfmap.NexusMap | None = None,
                       axes: str | tuple[str, str] = 'axes', signal: str = 'signal',
-                      values: str | tuple[str, str] | None = None) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+                      values: str | tuple[str, str] | None = None, interpolate: bool = False) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
         Generate 2D mesh from scan or scans
 
@@ -282,14 +302,15 @@ class Experiment:
             x, y, z = generate_mesh(*range(-10, 0), axes='eta', signal='roi2_sum', values='Tsample')
             # or, if scan 12345 is a 2D grid scan
             x, y, z = generate_mesh(12345, axes=('sx', 'sy'), signal='roi2_sum')
-            # or, if scans are varying by sx, sy in a grid
-            x, y, z = generate_mesh(12345, values=('sx', 'sy'))
+            # or, if scans are varying by sx and sy in a grid
+            x, y, z = generate_mesh(*range(0, 25), values=('sx', 'sy'), signal='roi2_sum')
 
         :param scan_files: multiple files or single 2D grid scan
         :param hdf_map: hdfmap.NeXus map, or None to generate
         :param axes: x-axis name, or for grid scans the names of ('xaxis', 'yaxis')
         :param signal: signal name
         :param values: name of the value that changes between multiple files
+        :param interpolate: if true, interpolates between points
         :returns: X, Y, IMAGE rank 2 arrays
         """
         scans = self.scans(*scan_files, hdf_map=hdf_map)
@@ -316,10 +337,13 @@ class Experiment:
             return x_data, y_data, z_data
         else:
             try:
+                # 2D grid scan with 2 dimensions changing
                 x_axis, y_axis = values
-                # TODO: grid of scans
-                # TODO: for this, value should be (sx, sy)
-                raise Exception('generating mesh from many scans not possible yet')
+                z_axis = signal
+                x_data, y_data, z_data = self.join_scan_arrays(*scans, data_fields=[x_axis, y_axis, z_axis])
+                if interpolate:
+                    return interpolate_to_grid(x_data, y_data, z_data)
+                return coordinates_to_grid(x_data, y_data, z_data)
             except (ValueError, TypeError):
                 pass
             x_data, y_data, z_data = [], [], []
