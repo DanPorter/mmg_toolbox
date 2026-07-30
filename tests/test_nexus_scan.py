@@ -19,6 +19,8 @@ def test_nexus_scan():
     assert scan('_cmd') == 'flyscancn eta_fly 0.005 61 pil3_100k 0.1 0.5 roi1 roi2'
     assert scan('max(signal / Transmission / (rc/300.) / _t)') == approx(1215483134.5953412)
     assert scan.scan_number() == 1109527
+    start, stop, duration = scan.start_end_duration()
+    assert duration.total_seconds() == approx(41.514)
 
     scannables = scan.get_scannables()
     assert len(scannables) == 24
@@ -36,5 +38,9 @@ def test_nexus_scan():
     assert volume.shape == (61, 195, 487)
     assert scan.get_max_index() == (approx(63957), (33, 103, 238))
     assert scan.image_background() == approx(1.0)
+
+    times = scan.get_scan_time()
+    assert times.shape == (61, )
+    assert (times[-1] - times[0]).total_seconds() == approx(6.0)
 
 

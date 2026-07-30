@@ -20,7 +20,8 @@ from mmg_toolbox.beamline_metadata.hdfmap_generic import ROI_SUFFIXES
 from mmg_toolbox.beamline_metadata.config import beamline_config, C
 from mmg_toolbox.nexus.instrument_model import NXInstrumentModel
 from mmg_toolbox.nexus.nexus_functions import get_dataset_value, nx_find, nx_find_all
-from mmg_toolbox.utils.file_functions import get_scan_number, read_tiff
+from mmg_toolbox.nexus.nexus_names import NX_START, NX_END
+from mmg_toolbox.utils.file_functions import get_scan_number, read_tiff, get_file_time
 from mmg_toolbox.utils.misc_functions import shorten_string, DataHolder
 from mmg_toolbox.xas.spectra_container import SpectraContainer
 from mmg_toolbox.xas.nxxas_loader import load_xas_scans
@@ -126,7 +127,6 @@ class NexusScan(NexusLoader):
         }
         return [roi + append for roi in alternate_name_rois]
 
-
     def scan_number(self) -> int:
         return get_scan_number(self.filename)
 
@@ -135,6 +135,15 @@ class NexusScan(NexusLoader):
 
     def label(self) -> str:
         return f"#{self.scan_number()}"
+
+    def start_end_duration(self) -> tuple[datetime.datetime, datetime.datetime, datetime.timedelta]:
+        """Return start and end times of scan, plus duration as datetime and timedelta objects"""
+        scan_start, scan_end = self.times(NX_START, NX_END, default=None)
+        if scan_start is None:
+            raise KeyError(f"scan start time not found in {self.filename}")
+        if scan_end is None:
+            scan_end = get_file_time(self.filename)
+        return scan_start, scan_end, scan_end - scan_start
 
     def load_hdf(self) -> h5py.File:
         """Load the Hdf file"""
@@ -190,14 +199,18 @@ class NexusScan(NexusLoader):
                 for name in args
             ]
 
-    def times(self, *args) -> list[datetime.datetime]:
+    def times(self, *args, default: datetime.datetime | None = None) -> list[datetime.datetime | None]:
         """Return datetime object"""
         with self.load_hdf() as hdf:
-            data = [dataset2data(hdf[self.map.combined[name]]) for name in args]
+            data = [
+                dataset2data(hdf[self.map.combined[name]])
+                if name in self.map.combined else default
+                for name in args
+            ]
             dt = [
-                obj if isinstance(obj, datetime.datetime)
-                else datetime.datetime.fromisoformat(obj) if isinstance(obj, str)
-                else datetime.datetime.fromtimestamp(float(obj))
+                obj if obj is None or isinstance(obj, datetime.datetime) else
+                datetime.datetime.fromisoformat(obj) if isinstance(obj, str) else
+                datetime.datetime.fromtimestamp(float(obj))
                 for obj in data
             ]
         return dt
@@ -280,6 +293,17 @@ class NexusScan(NexusLoader):
         """Return data table"""
         with self.load_hdf() as hdf:
             return self.map.create_scannables_table(hdf, delimiter, string_spec, format_spec, default_decimals)
+
+    def get_scan_time(self) -> np.ndarray:
+        """Return array of datetimes for each scan point"""
+        start, stop, duration = self.start_end_duration()
+        count_time = self.eval('_t', default=None)  # '_t' is an alternate for count_time and others
+        if count_time is None:
+            # assume regular spacing in time
+            shape = self.map.scannables_shape()
+            time_per_point = duration.total_seconds() / np.prod(*shape)
+            count_time = np.full(shape, time_per_point)
+        return np.array([start + datetime.timedelta(seconds=x) for x in np.cumsum(count_time)])
 
     def _get_plot_axis(self, hdf: h5py.File | h5py.Group, axis_name: str,
                        reduce_shape: bool = True, flatten: bool = False) -> tuple[np.ndarray, str]:

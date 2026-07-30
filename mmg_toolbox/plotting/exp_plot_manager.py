@@ -326,7 +326,7 @@ class ExperimentPlotManager:
         return axes
 
     def metadata(self, *scan_files: ScanFile, values: str | list[str], hdf_map: hdfmap.NexusMap | None = None,
-                 axes: plt.Axes | None = None) -> plt.Axes:
+                 axes: plt.Axes | None = None, use_time: bool = False) -> plt.Axes:
         """
         Create matplotlib figure with plot of metadata vs scan number
 
@@ -334,18 +334,19 @@ class ExperimentPlotManager:
         :param values: field name or path of float value to distinguish different scans
         :param hdf_map: hdfmap object or None
         :param axes: matplotlib.axes subplot, or None to create a figure
+        :param use_time: if True, plots scan start_time vs values
         :return: axes object
         """
         scans = self.exp.scans(*scan_files, hdf_map=hdf_map)
         ttl = self.exp.generate_scans_title(*scan_files)
 
         values = [values] if isinstance(values, str) else values
-        data = {
-            name: np.array([scan.values(name) for scan in scans])
-            for name in values
-        }
+        data = self.exp.join_scan_data(*scans, hdf_map=hdf_map, data_fields=values)
 
-        x_data = [scan.scan_number() for scan in scans]
+        if use_time:
+            x_data = [scan.start_end_duration()[0] for scan in scans]
+        else:
+            x_data = [scan.scan_number() for scan in scans]
         if axes is None:
             fig, axes = plt.subplots()
         # TODO: handle 2D grid scans
