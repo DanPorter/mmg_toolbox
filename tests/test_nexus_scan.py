@@ -22,6 +22,13 @@ def test_nexus_scan():
     start, stop, duration = scan.start_end_duration()
     assert duration.total_seconds() == approx(41.514)
 
+    values, name = scan.get_plot_axis('signal0 / signal1 / gains_atten_Transmission')
+    assert name == 'roi2_sum / count_time / Transmission'
+    assert values.shape == (61, )
+    values, name = scan.get_plot_axis('IMAGE / Transmission')
+    assert name == 'data / Transmission'
+    assert values.shape == (61, )
+
     scannables = scan.get_scannables()
     assert len(scannables) == 24
     assert 'ic1monitor' in scannables

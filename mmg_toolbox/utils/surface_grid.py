@@ -4,6 +4,7 @@ Functions to define 2D grids based on coordinates
 
 import numpy as np
 from scipy.interpolate import griddata
+from typing import Literal
 
 Array = np.ndarray | list
 
@@ -54,7 +55,8 @@ def coordinates_to_grid(x: Array | tuple[list, list, list], y: Array | None = No
 
 
 def interpolate_to_grid(x: Array | tuple[list, list, list], y: Array | None = None, z: Array | None = None,
-                        grid_shape: tuple[int, int] | None = None, method: str = "linear") -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+                        grid_shape: tuple[int, int] | None = None,
+                        method: Literal["nearest", "linear", "cubic"] = "linear") -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Convert coordinates to grid coordinates
 
