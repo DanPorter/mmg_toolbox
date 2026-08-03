@@ -2,10 +2,13 @@
 mmg_toolbox tests
 Test nexus reader
 """
+import os
+
+import h5py
 import numpy as np
 from pytest import approx
 
-from mmg_toolbox.nexus.nexus_scan import NexusScan
+from mmg_toolbox.nexus.nexus_scan import NexusScan, load_nexus_scan
 from . import only_dls_file_system
 from .example_files import DIR
 
@@ -51,3 +54,62 @@ def test_nexus_scan():
     assert (times[-1] - times[0]).total_seconds() == approx(6.0)
 
 
+@only_dls_file_system
+def test_save_load_nexus_scan():
+    f = DIR + '/i16/1109527.nxs'
+    scan = NexusScan(f)
+
+    some_data = np.arange(100).reshape((10, 10))
+    scan.add_local(some_data=some_data)
+    eval_data = scan('max(signal / Transmission / (rc/300.) / _t)')  # added to local
+    signal_data = scan('signal')  # added to local
+
+    # write nexus
+    scan.save('test_nexus_scan.nxs')
+
+    # load nexus
+    check_scan = load_nexus_scan('test_nexus_scan.nxs')
+    assert check_scan.filename == f
+    assert check_scan.map.filename == f
+    assert check_scan._local_data['signal'] == approx(signal_data)
+    assert check_scan('max(signal / Transmission / (rc/300.) / _t)') == approx(eval_data)
+    assert check_scan('axes').shape == (61, )
+
+    check_scan = NexusScan('test_nexus_scan.nxs')
+    check_scan.load_local_data()
+    assert check_scan.filename == f
+    assert check_scan.map.filename == f
+    assert check_scan._local_data['signal'] == approx(signal_data)
+    assert check_scan('max(signal / Transmission / (rc/300.) / _t)') == approx(eval_data)
+    assert check_scan('axes').shape == (61,)
+
+    os.remove('test_nexus_scan.nxs')
+
+
+@only_dls_file_system
+def test_save_load_csv():
+    f = DIR + '/i16/1109527.nxs'
+    scan = NexusScan(f)
+    scan.save_csv('test_nexus_scan.csv', 'axes', 'signal', 'sqrt(signal)')
+
+    data = np.loadtxt('test_nexus_scan.csv', delimiter=',')
+    assert data.shape == (61, 3)
+
+
+@only_dls_file_system
+def test_save_load_nxdata():
+    f = DIR + '/i16/1144224.nxs'  # 2D scan
+    scan = NexusScan(f)
+
+    # write nexus
+    scan.save('test_nexus_scan.nxs')
+    with h5py.File('test_nexus_scan.nxs', 'a') as hdf:
+        scan.save_nxdata(hdf['NexusScan'], 'data', 'axes', 'signal', 'sqrt(signal)', default=True)
+
+    with h5py.File('test_nexus_scan.nxs', 'r') as h:
+        assert isinstance(h['NexusScan/data/sx'], h5py.Dataset)
+        assert isinstance(h['NexusScan/data/sy'], h5py.Dataset)
+        assert isinstance(h['NexusScan/data/roi2_sum'], h5py.Dataset)
+        assert len(h['NexusScan/data']) == 5
+
+    os.remove('test_nexus_scan.nxs')

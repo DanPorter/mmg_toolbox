@@ -8,6 +8,7 @@ NexusDataHolder - Loads scan data and meta data into attributes
 import os
 import datetime
 import re
+import json
 
 import h5py
 import hdfmap
@@ -21,6 +22,7 @@ from mmg_toolbox.beamline_metadata.config import beamline_config, C
 from mmg_toolbox.nexus.instrument_model import NXInstrumentModel
 from mmg_toolbox.nexus.nexus_functions import get_dataset_value, nx_find, nx_find_all
 from mmg_toolbox.nexus.nexus_names import NX_START, NX_END
+from mmg_toolbox.nexus import nexus_writer as nw
 from mmg_toolbox.utils.file_functions import get_scan_number, read_tiff, get_file_time
 from mmg_toolbox.utils.misc_functions import shorten_string, multiple_replace, DataHolder
 from mmg_toolbox.xas.spectra_container import SpectraContainer
@@ -491,6 +493,77 @@ class NexusScan(NexusLoader):
         with self.load_hdf() as hdf:
             return NXInstrumentModel(hdf)
 
+    def save(self, filename: str):
+        """Save object as HDF5 file"""
+        from mmg_toolbox import __version__
+        date = str(datetime.datetime.now())
+
+        # Write new file
+        with h5py.File(filename, 'w') as f:
+            nw.add_entry_links(f, self.filename)
+            entry = nw.add_nxentry(f, 'NexusScan', default=False)
+            # Filename
+            nw.add_nxfield(entry, 'filename', self.filename)
+            # LocalData
+            nw.add_nxprocess(
+                root=entry,
+                name='local_data',
+                program='mmg_toolbox.nexus.nexus_scan',
+                version=__version__,
+                date=date,
+                **self._local_data  # save local_data as NXparameters
+            )
+            nw.add_nxnote(
+                root=entry,
+                name='config',
+                description='NexusScan configuration',
+                data=self.config,
+            )
+
+    def load_local_data(self):
+        """If the scan file contains previously saved NexusScan information, the local data and config will be loaded."""
+
+        with self.load_hdf() as hdf:
+            orig_filename, local_data, config = _load_local_data(hdf)
+
+        self.__init__(orig_filename, None, config=config)
+        self.add_local(**local_data)
+
+    def save_nxdata(self, root: h5py.Group, name: str = 'data', x_axis: str | None = None, *y_axis: str | None,
+                    z_axis: str | None = None, default: bool = False):
+        """Save scan data as NXdata group"""
+        plot_data = self.get_plot_data(x_axis, *y_axis, z_axis=z_axis)
+        nx_data = nw.add_nxdata(
+            root=root,
+            name=name,
+            axes=plot_data['axes_names'],
+            signal=plot_data['signal_names'][0],
+            default=default
+        )
+        for name, data in zip(plot_data['axes_names'], plot_data['axes_data']):
+            nw.add_nxfield(nx_data, name, data)
+        for name, data in zip(plot_data['signal_names'], plot_data['signal_data']):
+            nw.add_nxfield(nx_data, name, data)
+
+    def save_csv(self, filename: str, *scannables: str):
+        """Save axes and signal as CSV file"""
+        # Load scannables data
+        names = (self.replace_default_names(scannable) for scannable in scannables)
+        header = '# mmg_toolbox.nexus.nexus_scan\n'
+        header += '# ' + ', '.join(names)
+        scannable_arrays = self.eval(','.join(scannables))
+        array_len = max(len(array) for array in scannable_arrays)
+        scannable_arrays = [
+            np.tile(array, array_len) if array.size == 1 else array
+            for array in scannable_arrays
+        ]
+        with open(filename, 'w') as f:
+            f.write(header)
+            f.write('\n')
+            for values in zip(*scannable_arrays):
+                f.write(', '.join(map(str, values)))
+                f.write('\n')
+
 
 class NexusDataHolder(DataHolder, NexusScan):
     """
@@ -525,3 +598,36 @@ class NexusDataHolder(DataHolder, NexusScan):
 
     def __repr__(self):
         return f"NexusDataHolder('{self.filename}')"
+
+
+def _load_local_data(hdf: h5py.File) -> tuple[str | None, dict, dict]:
+    """Load saved data from Nexus file saved by NexusScan.save"""
+    def h5value(ds):
+        return ds.asstr()[()] if h5py.check_string_dtype(ds.dtype) else ds[()]
+
+    nexus_scan_entry = hdf.get('NexusScan', None)
+    if nexus_scan_entry is None:
+        print(f"File {hdf.filename} does not contain a NexusScan entry")
+        return None, {}, {}
+    orig_filename = str(h5value(nexus_scan_entry.get('filename')))
+    local_data = {name: h5value(ds) for name, ds in nexus_scan_entry['local_data/parameters'].items()}
+    config = json.loads(h5value(nexus_scan_entry.get('config/data')))
+    return orig_filename, local_data, config
+
+
+def load_nexus_scan(filename: str) -> NexusScan:
+    """Loads a NexusScan object from a NeXus file, if it includes the NexusScan entry"""
+    with load_hdf(filename) as hdf:
+        if 'NexusScan' not in hdf:
+            print(f"File {filename} does not contain a NexusScan entry, loading NexusScan as normal")
+            hdf_map = NexusMap()  # save re-opening the file
+            hdf_map.populate(hdf)
+            return NexusScan(filename, hdf_map)
+
+        orig_filename, local_data, config = _load_local_data(hdf)
+
+    # create NexusScan
+    nexus_scan = NexusScan(orig_filename, config=config)
+    nexus_scan.add_local(**local_data)
+    return nexus_scan
+
