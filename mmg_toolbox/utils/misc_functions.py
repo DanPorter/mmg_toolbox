@@ -138,14 +138,16 @@ def string2numbers(string: str) -> list[int]:
     values = string.split(',')
     numbers = []
     for value in values:
-        if value.isdigit():
+        if value.lstrip(' -+').isdigit():
             numbers.append(int(value))
-        elif '-' in value:
-            st, nd = value.split('-')
-            numbers.extend(range(int(st), int(nd) + 1))
         elif ':' in value:
             range_values = [int(n) for n in value.split(':')]
             numbers.extend(range(*range_values))
+        elif '-' in value:
+            st, nd = value.split('-')
+            numbers.extend(range(int(st), int(nd) + 1))
+        else:
+            raise Exception(f"Unknown string separator: {value}")
     return numbers
 
 
@@ -252,6 +254,21 @@ def shorten_string(string: str, max_length: int = 100, end_letters: int = 10) ->
         return string
     end_string = string[-end_letters:] if end_letters > 0 else ''
     return string[:max_length - end_letters - 5] + ' ... ' + end_string
+
+
+def multiple_replace(replacements: dict[str, str], text: str) -> str:
+    """
+    Replace multiple sub-strings within a string
+
+        replacements = {'replace_me': 'with me'}
+        new_string = multiple_replace(replacements, text)
+
+    :param replacements: dict combining values to replace with values to replace with
+    :param text: string including sub-strings to replace
+    :returns: altered string
+    """
+    regex = re.compile(r"(%s)" % "|".join(map(re.escape, replacements.keys())))
+    return regex.sub(lambda match: replacements[match.group()], text)
 
 
 class DataHolder(dict):

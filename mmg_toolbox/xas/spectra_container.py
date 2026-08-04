@@ -13,40 +13,11 @@ from __future__ import annotations
 import numpy as np
 import matplotlib.pyplot as plt
 
-from mmg_toolbox.utils.polarisation import pol_subtraction_label, check_polarisation, opposite_polarisations, PolLabels
-from .spectra import Spectra, SpectraSubtraction, spa
-
-
-class Metadata:
-    filename: str = ''
-    beamline: str = ''
-    scan_no: int = 0
-    start_date_iso: str = ''
-    end_date_iso: str = ''
-    cmd: str = ''
-    pol: str = 'pc'
-    pol_angle: float = 0.0
-    sample_name: str = ''
-    temp: float = 300
-    mag_field: float = 0
-    pitch: float = 0  # 0 == sample surface normal to beam
-
-    def __init__(self, **kwargs):
-        for name, value in kwargs.items():
-            if hasattr(self, name):
-                setattr(self, name, value)
-
-    def __str__(self):
-        return str(self.__dict__)
-
-
-class XasMetadata(Metadata):
-    default_mode: str = 'tey'
-    element: str = ''
-    edge: str = ''
-    energy: np.ndarray = np.arange(10)
-    monitor: np.ndarray = np.ones(10)
-    raw_signals: dict[str, np.ndarray] = {'tey': np.zeros(10)}
+from mmg_toolbox.plotting.matplotlib import new_plot, plot_line
+from mmg_toolbox.utils.polarisation import pol_subtraction_label, PolLabels
+from mmg_toolbox.xas import spectra_analysis as spa
+from mmg_toolbox.xas.spectra import Spectra, SpectraSubtraction
+from mmg_toolbox.xas.metadata import XasMetadata, merge_xas_metadata
 
 
 class SpectraContainer:
@@ -81,7 +52,7 @@ class SpectraContainer:
         if metadata is None:
             m, s = next(iter(spectra.items()))
             element, edge = spa.energy_range_edge_label(s.energy.min(), s.energy.max())
-            metadata = XasMetadata(energy=s.energy, signal=s.signal, monitor=np.ones_like(s.signal),
+            metadata = XasMetadata(energy=s.energy, raw_signals={'tey': s.signal}, monitor=np.ones_like(s.signal),
                                    default_mode=m, element=element, edge=edge)
         self.metadata = metadata
 
@@ -111,9 +82,7 @@ class SpectraContainer:
 
     def __add__(self, other):
         if issubclass(type(other), SpectraContainer):
-            # average Spectra
-            spectra = {n: s + other.spectra[n] for n, s in self.spectra.items() if n in other.spectra}
-            return SpectraContainer(self.name, spectra, self, other, metadata=self.metadata)
+            return SpectraContainerAverage(self, other)
         # add float or array to Spectra
         spectra = {n: s + other for n, s in self.spectra.items()}
         return SpectraContainer(self.name, spectra, self, *self.parents, metadata=self.metadata)
@@ -141,8 +110,13 @@ class SpectraContainer:
         return SpectraContainer(name, self.spectra.copy(), *self.parents, metadata=self.metadata)
 
     def label(self):
-        # return f"{self.name} {self.process_label}"
-        return self.process_label.replace('/', '').replace(' ', '')
+        return (
+            f"{self.name} " +
+            f"{self.metadata.element}{self.metadata.edge} " +
+            f"T={round(self.metadata.temp, 1):.3g}K " +
+            f"'{self.metadata.pol}' " +
+            f"B={round(self.metadata.mag_field, 5):+.3g}T"
+        )
 
     def find_edges(self, search_edges: list[str] | None = spa.SEARCH_EDGES) -> dict[str, float]:
         """Return list of edges within the energy range"""
@@ -158,15 +132,37 @@ class SpectraContainer:
         spectra = self.spectra[mode]
         return spectra.energy, spectra.signal
 
-    def get_all_arrays(self) -> np.ndarray[tuple[int, int], np.dtype[np.float64]]:
+    def get_all_arrays(self) -> np.ndarray[tuple[int, ...], np.dtype[np.float64]]:
         """Return energy, signal arrays of all modes"""
         energy = self.spectra[self.metadata.default_mode].energy
         signals = np.array([spectra.signal for spectra in self.spectra.values()])
         return np.array([energy, *signals])
 
+    def get_raw_metadata(self, field: str) -> dict:
+        """Recursively get raw metadata from top level parent"""
+        if self.parents:
+            return {
+                name: metadata for parent in self.parents
+                for name, metadata in parent.get_raw_metadata(field).items()
+            }
+        return {self.name: getattr(self.metadata, field)}
+
+    def get_raw_filename(self) -> str:
+        """Recursively look through the parents for a raw filename"""
+        return next(iter(self.get_raw_metadata('filename').values()))
+
+    def analysis_tree(self) -> dict[str, list[dict]]:
+        """Return ordered dict of analysis steps in tree structure"""
+        label = f"{self.process_label.replace('/', '').replace(' ', '')}"
+        return {label: [parent.analysis_tree() for parent in self.parents]}
+
     def analysis_steps(self) -> dict[str, dict[str, Spectra]]:
         """Return ordered dictionary of processing steps from parent objects"""
-        return {sc.label(): sc.spectra for sc in list(reversed(self.parents)) + [self]}
+        return {
+            label: spectra for sc in self.parents for label, spectra in sc.analysis_steps().items()
+        } | {
+            f"{self.process_label.replace('/', '').replace(' ', '')}": self.spectra
+        }
 
     def analysis_steps_str(self) -> str:
         """Return string of analysis steps"""
@@ -202,9 +198,47 @@ class SpectraContainer:
         np.savetxt(csv_filename, array, delimiter=', ', header=header)
         print(f"Saved {csv_filename}")
 
+    ### Plots ###
+
+    def add_edge_lines(self, ax: plt.Axes):
+        """Add absorption edge lines to a plot"""
+        for edge_label, energy in self.get_edges().items():
+            ax.axvline(energy, color='k', alpha=0.3)
+            ax.text(energy, 0.9, edge_label, color='k', alpha=0.3,
+                    ha='right', va='top', transform=ax.get_xaxis_transform())
+
+    def plot(self, mode: str | None = None, *args,
+             axes: plt.Axes | None = None, background: bool = False, parents: bool = False,
+             **kwargs) -> plt.Axes:
+        """
+        Create matplotlib axes of single mode
+
+            ax = spectra.plot('tfy')
+
+        :param mode: mode to plot, or None for default
+        :param args: given directly to plt.plot(..., *args, **kwars)
+        :param axes: matplotlib.axes subplot, or None to create a figure
+        :param background: whether to add a background line
+        :param parents: whether to add parents spectra to plot
+        :param kwargs: given directly to plt.plot(..., *args, **kwars)
+        :return: matplotlib Axes
+        """
+        axes = new_plot() if axes is None else axes
+        spectra = self.spectra[mode or self.metadata.default_mode]
+        spectra.plot(axes, *args, **kwargs)
+        if background:
+            spectra.plot_bkg(axes, *args, **kwargs)
+        if parents:
+            spectra.plot_parents(axes, *args, **kwargs)
+        self.add_edge_lines(axes)
+        axes.legend()
+        return axes
+
     def create_figure(self, **kwargs) -> plt.Figure:
         """
         Create matplotlib figure showing each spectra in a separate axes
+
+            fig = spectra.create_figure()
 
         :param kwargs: kwargs to pass to plt.figure
         :return: matplotlib Figure
@@ -212,6 +246,7 @@ class SpectraContainer:
         fig, axs = plt.subplots(1, len(self.spectra), squeeze=False, **kwargs)
 
         for ax, s in zip(axs.flat, self.spectra.values()):
+            self.add_edge_lines(ax=ax)
             s.plot(ax)
             ax.set_xlabel('E [eV]')
             ax.set_ylabel('signal')
@@ -222,11 +257,11 @@ class SpectraContainer:
         """
         Create matplotlib figure showing each spectra and background subtraction in separate axes
 
+            fig = spectra.create_background_figure()
+
         :param kwargs: kwargs to pass to plt.figure
         :return: matplotlib Figure
         """
-        fig: plt.Figure
-        axes: np.ndarray[plt.Axes, np.object_]
         fig, axes = plt.subplots(2, len(self.spectra), squeeze=False, **kwargs)
         fig.tight_layout()
 
@@ -234,16 +269,12 @@ class SpectraContainer:
             spectra.plot_parents(ax=axes[0, n])
             spectra.plot_bkg(ax=axes[0, n])
             axes[0, n].set_ylabel(mode)
-            for edge_label, energy in self.get_edges().items():
-                axes[0, n].axvline(energy, color='k', alpha=0.3)
-                axes[0, n].text(energy, 0.9, edge_label, color='k', alpha=0.3,
-                                ha='right', va='top',
-                                transform=axes[0, n].get_xaxis_transform())
-
+            self.add_edge_lines(axes[0, n])
             spectra.plot(ax=axes[1, n], label=self.name)
             axes[1, n].set_ylabel(mode)
 
         for ax in axes.flat:
+            ax: plt.Axes
             ax.set_xlabel('E [eV]')
             ax.legend()
         return fig
@@ -256,15 +287,18 @@ class SpectraContainer:
             mode: getattr(spec, method)(*args, **kwargs)
             for mode, spec in self.spectra.items()
         }
-        parents = (self.copy(), *self.parents)
         process_label = next(iter(spectra.values())).process_label
-        scan = SpectraContainer(self.name, spectra, *parents, metadata=self.metadata)
+        scan = SpectraContainer(self.name, spectra, self.copy(), metadata=self.metadata)
         scan.process_label = process_label
         return scan
 
     def trim(self, ev_from_start=1., ev_from_end=None) -> SpectraContainer:
         """Trim spectra between energies"""
         return self._process_spectra('trim', ev_from_start, ev_from_end)
+
+    def shift(self, energy_shift=1.0) -> SpectraContainer:
+        """Shift spectra in energy by [energy_shift] eV"""
+        return self._process_spectra('shift', energy_shift)
 
     def divide_by_signal_at_energy(self, energy1: float, energy2: float | None = None) -> SpectraContainer:
         """Divide spectra by signal"""
@@ -285,6 +319,20 @@ class SpectraContainer:
     def divide_by_jump(self, ev_from_start: float = 5, ev_from_end: float | None = None) -> SpectraContainer:
         """Normalise the spectra to the jump between edges"""
         return self._process_spectra('divide_by_jump', ev_from_start, ev_from_end)
+
+    def _prepare_edges_kwargs(self, name: str, *args, **kwargs) -> tuple[tuple, dict]:
+        """Prepare args, kwargs for processing"""
+        edges = self.get_edges()
+        if name == 'double_edge_step':
+            l3 = next((val for key, val in edges.items() if 'l3' in key.lower()), None)
+            l2 = next((val for key, val in edges.items() if 'l2' in key.lower()), None)
+            if l3 and 'l3_energy' not in kwargs:
+                kwargs['l3_energy'] = l3
+            if l2 and 'l2_energy' not in kwargs:
+                kwargs['l2_energy'] = l2
+        elif (name == 'poly_edges' or name == 'exp_edges') and not args:
+            args = tuple(edges.values())
+        return args, kwargs
 
     def divide_by_background(self, name='flat', *args, **kwargs) -> SpectraContainer:
         """
@@ -310,6 +358,7 @@ class SpectraContainer:
         :param kwargs: additional keyword arguments
         :return: processed SpectraContainer object
         """
+        args, kwargs = self._prepare_edges_kwargs(name, *args, **kwargs)
         return self._process_spectra('remove_background', name, *args, **kwargs)
 
     def remove_background(self, name='flat', *args, **kwargs) -> SpectraContainer:
@@ -319,7 +368,7 @@ class SpectraContainer:
           spectra = spectra.remove_background('flat', ev_from_start=5)
 
         Background options
-        | Option | parameters |
+        | Option | parameters |  # TODO: this doesn't show up in mkdocs
         |  ---   | ---------- |
         | 'flat' | ev_from_start |
         | 'norm' | ev_from_start |
@@ -336,16 +385,53 @@ class SpectraContainer:
         :param kwargs: additional keyword arguments
         :return: processed SpectraContainer object
         """
+        args, kwargs = self._prepare_edges_kwargs(name, *args, **kwargs)
         return self._process_spectra('remove_background', name, *args, **kwargs)
 
     def auto_edge_background(self, peak_width_ev: float = 5., edges: dict[str, float] | None = None) -> SpectraContainer:
         """Remove generic xray absorption background from spectra"""
-        return self._process_spectra('auto_edge_background', peak_width_ev, edges)
+        return self._process_spectra('auto_edge_background', peak_width_ev, edges or self.get_edges())
+
+
+class SpectraContainerAverage(SpectraContainer):
+    """Special subclass for average of SpectraContainers"""
+    def __init__(self, *spectra_containers: SpectraContainer):
+        # Expand any Average containers into their parents
+        expanded_list = []
+        for spectra_container in spectra_containers:
+            if isinstance(spectra_container, SpectraContainerAverage):
+                expanded_list.extend(spectra_container.parents)
+            else:
+                expanded_list.append(spectra_container)
+        first = expanded_list[0]
+        spectra = {
+            n: sum((s.spectra[n] for s in expanded_list[1:]), first.spectra[n])
+            for n in first.spectra
+        }
+        metadata = merge_xas_metadata(*(s.metadata for s in expanded_list))
+        name = '+'.join(
+            [expanded_list[0].name, '..', expanded_list[-1].name]
+            if len(expanded_list) > 3 else
+            [s.name for s in expanded_list]
+        )
+        super().__init__(name, spectra, *expanded_list, metadata=metadata)
+        self.process_label = 'average'
+
+    def __repr__(self):
+        return f"SpectraContainerAverage('{self.name}', '{self.process_label}', {list(self.spectra)})"
+
+    def align_spectra(self, mode: str | None = None, differentiate=True) -> SpectraContainerAverage:
+        """Align parent spectra and return a new SpectraContainerAverage"""
+        mode = mode or self.metadata.default_mode
+        spectra = [parent.spectra[mode] for parent in self.parents]
+        shifts = spa.find_shifts(*((s.energy, s.signal) for s in spectra), differentiate=differentiate)
+        parents = [parent.shift(shift) for parent, shift in zip(self.parents, shifts)]
+        return SpectraContainerAverage(*parents)
 
 
 class SpectraContainerSubtraction(SpectraContainer):
     """Special subclass for subtraction of SpectraContainers - XMCD and XMLD"""
-    def __init__(self, spectra_container1: SpectraContainer, spectra_container2: SpectraContainer):
+    def __init__(self, spectra_container1: SpectraContainer | SpectraContainerAverage, spectra_container2: SpectraContainer | SpectraContainerAverage):
         # subtract each spectra in container
         spectra = {
             name: spectra - spectra_container2.spectra[name]
@@ -359,37 +445,62 @@ class SpectraContainerSubtraction(SpectraContainer):
         if m1.pol != m2.pol:
             # Polarisation flip - XMCD or XMLD
             name = pol_subtraction_label(m1.pol)
-            # rename parents (for display)
-            spectra_container1 = spectra_container1.copy(m1.pol)
-            spectra_container2 = spectra_container2.copy(m2.pol)
-            for spectrum in spectra.values():
-                spectrum.process_label = name
+            name1, name2 = m1.pol, m2.pol
         elif abs(m1.mag_field + m2.mag_field) < 0.1:
             # magnetisation flip - XMCD
             name = 'field ' + pol_subtraction_label(m1.pol)
-            # rename parents (for display)
-            spectra_container1 = spectra_container1.copy(f"B={m1.mag_field:+.1g}")
-            spectra_container2 = spectra_container2.copy(f"B={m2.mag_field:+.1g}")
-            for spectrum in spectra.values():
-                spectrum.process_label = name
+            name1, name2 = f"B={m1.mag_field:+.1g}", f"B={m2.mag_field:+.1g}"
         elif m1.pol == PolLabels.linear_arbitrary and abs(m1.pol_angle - m2.pol_angle) > 89:
             # rotate linear polarisation - XMLD
             name = PolLabels.linear_dichroism
-            # rename parents (for display)
-            spectra_container1 = spectra_container1.copy(f"{m1.pol}({m1.pol_angle:+.1g})")
-            spectra_container2 = spectra_container2.copy(f"{m2.pol}({m2.pol_angle:+.1g})")
-            for spectrum in spectra.values():
-                spectrum.process_label = name
+            name1, name2 = f"{m1.pol}({m1.pol_angle:+.1g})", f"{m2.pol}({m2.pol_angle:+.1g})"
         else:
             name = 'subtraction'
+            name1 = name2 = None
+        # rename parents (for display)
+        self.spectra1 = spectra_container1.copy(name1)
+        self.spectra2 = spectra_container2.copy(name2)
+        # spectra process label
+        for spectrum in spectra.values():
+            spectrum.process_label = name
         # subtraction metadata (merge these?)
-        metadata = XasMetadata(**m1.__dict__)
-        metadata.filename = ''
-        super().__init__(name, spectra, spectra_container1, spectra_container2, metadata=metadata)
+        metadata = merge_xas_metadata(m1, m2)
+        super().__init__(name, spectra, self.spectra1, self.spectra2, metadata=metadata)
+        # sum rule parameters
+        self.n_holes: float | None = None
+        self.split_energy: float | None = None
+
+    def __repr__(self):
+        return f"SpectraContainerSubtraction('{self.name}', '{self.process_label}', {list(self.spectra)})"
 
     def __str__(self):
         s = super().__str__()
         return s + '\n' + self.sum_rules_report()
+
+    def align_spectra(self, mode: str | None = None, differentiate=True) -> SpectraContainerSubtraction:
+        """Align parent spectra and return a new SpectraContainerSubtraction"""
+        mode = mode or self.metadata.default_mode
+        spectra = [parent.spectra[mode] for parent in self.parents]
+        shifts = spa.find_shifts(*((s.energy, s.signal) for s in spectra), differentiate=differentiate)
+        parents = [parent.shift(shift) for parent, shift in zip(self.parents, shifts)]
+        return SpectraContainerSubtraction(*parents)
+
+    def label(self):
+        p1, p2 = self.parents
+        if 'field' in self.process_label:
+            static = f"'{self.metadata.pol}'"
+        else:
+            static = f"B={round(self.metadata.mag_field, 5):+.3g}T"
+        return (
+            f"{p1.metadata.scan_no}-{p2.metadata.scan_no} {self.process_label} " +
+            f"{self.metadata.element}{self.metadata.edge} " +
+            f"T={round(self.metadata.temp, 1):.3g}K " + static
+        )
+
+    def set_sum_rule_parameters(self, n_holes: float | None = None, split_energy: float | None = None):
+        self.n_holes = spa.d_electron_holes(self.metadata.element) if n_holes is None else n_holes
+        spectra = self.spectra[self.metadata.default_mode]
+        self.split_energy = spectra.get_split_energy() if split_energy is None else split_energy
 
     def calculate_signal_ratio(self) -> dict[str, float]:
         """Return the maximum signal as a ratio of the average parent spectra"""
@@ -404,7 +515,8 @@ class SpectraContainerSubtraction(SpectraContainer):
             for mode, spectra in self.spectra.items()
         }
 
-    def calculate_sum_rules(self, n_holes: float | None = None, mode: str | None = None) -> tuple[float, float]:
+    def calculate_sum_rules(self, n_holes: float | None = None, mode: str | None = None,
+                            split_energy: float | None = None) -> tuple[float, float]:
         """
         Calculate sum rules of XMCD spectra from integration
 
@@ -413,13 +525,15 @@ class SpectraContainerSubtraction(SpectraContainer):
         Parameters
         :param n_holes: number of holes in absorbing ion
         :param mode: select which detection mode to use (None for default)
+        :param split_energy: energy half-way between two edges
         :returns: orb, spin sum rule values for the detector mode
         """
+        self.set_sum_rule_parameters(n_holes=n_holes, split_energy=split_energy)
         spectra = self.spectra[mode or self.metadata.default_mode]
-        n_holes = spa.d_electron_holes(self.metadata.element) if n_holes is None else n_holes
-        return spectra.calculate_sum_rules(n_holes)
+        return spectra.calculate_sum_rules(self.n_holes, self.split_energy)
 
-    def sum_rules_report(self, n_holes: float | None = None, mode: str | None = None) -> str:
+    def sum_rules_report(self, n_holes: float | None = None, mode: str | None = None,
+                         split_energy: float | None = None) -> str:
         """
         Calculate sum rules of XMCD spectra and return report
 
@@ -428,13 +542,20 @@ class SpectraContainerSubtraction(SpectraContainer):
         Parameters
         :param n_holes: number of holes in absorbing ion
         :param mode: select which detection mode to use (None for default)
+        :param split_energy: energy half-way between two edges
         :returns: str
         """
-        spectra = self.spectra[mode or  self.metadata.default_mode]
-        n_holes = spa.d_electron_holes(self.metadata.element) if n_holes is None else n_holes
+        mode = mode or self.metadata.default_mode
+        spectra = self.spectra[mode]
+        try:
+            n_holes = spa.d_electron_holes(self.metadata.element) if n_holes is None else n_holes
+        except ValueError:
+            return f"=== Sum Rules not available for element {self.metadata.element} ===\n"
         report = "=== Sum Rules === \n"
-        report += f"{self.metadata.default_mode} signal = {self.calculate_signal_ratio()[self.metadata.default_mode]:.2%}\n"
-        report += spectra.sum_rules_report(n_holes, self.metadata.element)
+        report += f"{mode} signal = {self.calculate_signal_ratio()[mode]:.2%}\n"
+
+        report += f"Split energy between {self.metadata.element} {self.metadata.edge} edges: {split_energy} eV\n"
+        report += spectra.sum_rules_report(n_holes, self.metadata.element, split_energy)
         return report
 
     def create_sum_rules_figure(self, **kwargs) -> plt.Figure:
@@ -444,28 +565,18 @@ class SpectraContainerSubtraction(SpectraContainer):
         :param kwargs: kwargs to pass to plt.figure
         :return: matplotlib Figure
         """
-        fig: plt.Figure
-        axes: np.ndarray[plt.Axes, np.object_]
-        fig, axes = plt.subplots(2, len(self.spectra), squeeze=False, **kwargs)
-        fig.tight_layout(h_pad=0.1, w_pad=0.1)
+        fig, axes = plt.subplots(2, len(self.spectra), squeeze=False, sharex=True, **kwargs)
+        fig.tight_layout(h_pad=0, w_pad=0.1)
         signal_ratio = self.calculate_signal_ratio()
 
         for parent in self.parents:
             for n, (mode, spectra) in enumerate(parent.spectra.items()):
-                for edge_label, energy in self.get_edges().items():
-                    axes[0, n].axvline(energy, color='k', alpha=0.3)
-                    axes[0, n].text(energy, 0.9, edge_label, color='k', alpha=0.3,
-                                    ha='right', va='top',
-                                    transform=axes[0, n].get_xaxis_transform())
+                self.add_edge_lines(axes[0, n])
                 spectra.plot(ax=axes[0, n], label=parent.name)
                 axes[0, n].set_ylabel(mode)
 
         for n, (mode, spectra) in enumerate(self.spectra.items()):
-            for edge_label, energy in self.get_edges().items():
-                axes[1, n].axvline(energy, color='k', alpha=0.3)
-                axes[1, n].text(energy, 0.9, edge_label, color='k', alpha=0.3,
-                                ha='right', va='top',
-                                transform=axes[1, n].get_xaxis_transform())
+            self.add_edge_lines(axes[1, n])
             spectra.plot_sum_rules(ax=axes[1, n])
             axes[1, n].set_ylabel(self.name)
             idx = abs(spectra.signal).argmax()
@@ -473,41 +584,74 @@ class SpectraContainerSubtraction(SpectraContainer):
             axes[1, n].text(x, y, f"max signal = {signal_ratio[mode]:.2%}")
 
         for ax in axes.flat:
+            ax: plt.Axes
             ax.set_xlabel('E [eV]')
             ax.legend()
         return fig
 
+    def create_combined_axes(self, mode: str | None = None, axes: plt.Axes | None = None) -> plt.Axes:
+        """
+        Create matplotlib axes of subtraction plot and XAS in same axes
 
-def average_polarised_scans(*scans: SpectraContainer) -> tuple[SpectraContainer, SpectraContainer | None]:
-    """
-    Find unique polarisations and average each scan at that polarisation
-    Spectra are only separated by polarisation, all spectra with the same polarisation
-    are averaged together.
+        :param mode: select which detection mode to use (None for default)
+        :param axes: axes to plot on
+        :return: matplotlib Axes
+        """
+        selected_mode = mode or self.metadata.default_mode
+        axes = axes or plt.subplot()
+        signal_ratio = self.calculate_signal_ratio()
 
-        pol1, pol2 = average_polarised_scans(*scans)
+        for parent in self.parents:
+            for n, (mode, spectra) in enumerate(parent.spectra.items()):
+                if mode != selected_mode:
+                    continue
+                spectra.plot(ax=axes, label=parent.name)
 
-    :param scans: list of SpectraContainer objects
-    :return: pol1, (pol2|None) SpectraContainer objects for opposite polarisations
-    """
-    pols = opposite_polarisations(scans[0].metadata.pol, scans[0].metadata.pol_angle)
-    pol_scans = [
-        [scan for scan in scans if check_polarisation(scan.metadata.pol) == pol]
-        for pol in pols
-    ]
+        for n, (mode, spectra) in enumerate(self.spectra.items()):
+            if mode != selected_mode:
+                continue
+            spectra.plot_sum_rules(ax=axes)
+            axes.set_ylabel(self.name)
+            idx = abs(spectra.signal).argmax()
+            x, y = spectra.energy[idx], spectra.signal[idx]
+            axes.text(x, y, f"max signal = {signal_ratio[mode]:.2%}")
 
-    # average spectra containers
-    av_scans = [
-        sum(_scans[1:], _scans[0]) if len(_scans) > 1 else _scans[0]
-        for _scans in pol_scans
-    ]
+        self.add_edge_lines(axes)
+        axes.set_xlabel('E [eV]')
+        axes.legend()
+        return axes
 
-    # rename containers
-    for pol, scan, pol_scans in zip(pols, av_scans, pol_scans):
-        scan.name = pol
-        scan.parents = pol_scans
-        for spectra in scan.spectra.values():
-            spectra.process_label += f"_{pol}"
-    if len(pol_scans) == 1:
-        return av_scans[0], None
-    return av_scans[0], av_scans[1]
+    def write_csv(self, csv_filename: str, mode: str | None = None) -> None:
+        """
+        Write spectra to csv file
+
+            spectra.write_csv('xmcd_spectra.csv', mode='tey')  # spectra contains modes TEY and TFY
+            energy, xas_tey1, xas_tey2, xmcd = np.loadtxt('xmcd_spectra.csv', delimiter=',').T
+
+        :param csv_filename: filename to write
+        :param mode: mode to write, or None to write all mode spectra to single file
+        """
+        header = f"{self.name} {self.process_label}"
+        if mode is None:
+            array = self.get_all_arrays()
+            energy = array[0]
+            xmcd = array[1:]
+            xas1 = self.spectra1.get_all_arrays()[1:]
+            xas2 = self.spectra2.get_all_arrays()[1:]
+            array = np.array([energy, *xas1, *xas2, *xmcd]).T
+            keys = self.spectra.keys()
+            header += '\n' + ', '.join(
+                ['energy'] +
+                [f'xas1_{self.spectra1.name}_{k}' for k in keys] +
+                [f'xas2_{self.spectra2.name}_{k}' for k in keys] +
+                [f'{self.name}_{k}' for k in keys]
+            )
+        else:
+            spectra = self.spectra[mode]
+            xas1 = self.spectra1.spectra[mode]
+            xas2 = self.spectra2.spectra[mode]
+            array = np.transpose([spectra.energy, xas1.signal, xas2.signal, spectra.signal])
+            header += f"\nenergy, {self.spectra1.name}, {self.spectra2.name}, {self.name}"
+        np.savetxt(csv_filename, array, delimiter=', ', header=header)
+        print(f"Saved {csv_filename}")
 

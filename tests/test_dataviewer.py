@@ -107,6 +107,7 @@ def test_nexus_viewer_rois():
     assert abs(widget.plot_widget.index_line.get_xdata()[0] - 72.69) < 0.01
 
     # Check detector image
+    widget.plot_widget.update_image_data_from_file(widget.plot_widget.filenames[0])
     widget.plot_widget.view_index.set(56)
     widget.plot_widget.update_image()
     image = widget.plot_widget.ax_image.get_array()
@@ -118,7 +119,7 @@ def test_nexus_viewer_rois():
     y_axis_item = next(iid for iid in y_axis_items if 'test_roi_total' in widget.plot_widget.listbox.item(iid, 'text'))
     widget.plot_widget.listbox.selection_set(y_axis_item)
     widget.plot_widget.select_listbox_items()  # <<TreeviewSelect>>
-    assert widget.plot_widget.line.get_ydata().max() > 3e8
+    assert widget.plot_widget.plot_list[0].get_ydata().max() > 3e8
 
 
 

@@ -15,17 +15,22 @@ from .example_files import FILES_DICT
 def test_polarisation():
     assert pol.check_polarisation(pol.PolLabels.linear_horizontal) == 'lh'
     assert pol.check_polarisation(pol.PolLabels.linear_vertical) == 'lv'
-    assert pol.check_polarisation(pol.PolLabels.circular_left) == 'cl'
-    assert pol.check_polarisation(pol.PolLabels.circular_right) == 'cr'
-    assert pol.check_polarisation(pol.PolLabels.circular_negative) == 'cl'
-    assert pol.check_polarisation(pol.PolLabels.circular_positive) == 'cr'
+    assert pol.check_polarisation(pol.PolLabels.circular_left) == 'nc'
+    assert pol.check_polarisation(pol.PolLabels.circular_right) == 'pc'
+    assert pol.check_polarisation(pol.PolLabels.circular_negative) == 'nc'
+    assert pol.check_polarisation(pol.PolLabels.circular_positive) == 'pc'
     assert pol.check_polarisation(pol.PolLabels.linear_arbitrary, 0) == 'lh'
     assert pol.check_polarisation(pol.PolLabels.linear_arbitrary, 90) == 'lv'
     assert pol.check_polarisation(pol.PolLabels.linear_arbitrary, 30) == 'la'
     assert pol.check_polarisation(np.array([1,1,0,0])) == 'lh'
     assert pol.check_polarisation(None, 60) == 'la'
-    assert pol.pol_subtraction_label('pc') == 'xmcd'
+    assert pol.pol_subtraction_label('cl') == 'xmcd'
     assert pol.pol_subtraction_label('lv') == 'xmld'
+    assert pol.opposite_polarisations('nc') == ('nc', 'pc')
+    cmd1 = 'scan energy 10.503 10.583 0.001 BeamOk PP1500u [-2, 2, 0, 45, -0.063] w2 6 xmapMca 5'
+    cmd2 = 'scan energy 10.503 10.583 0.001 BeamOk PP1500u [-2, 2, 0, 45, 0.063] w2 6 xmapMca 5'
+    assert pol.get_i16_polarisation_from_phaseplate_cmd(cmd1) == 'nc'
+    assert pol.get_i16_polarisation_from_phaseplate_cmd(cmd2) == 'pc'
 
 
 @only_dls_file_system

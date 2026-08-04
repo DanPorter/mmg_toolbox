@@ -12,8 +12,9 @@ from __future__ import annotations
 
 from inspect import signature
 import numpy as np
-from matplotlib.axes import Axes
 import matplotlib.pyplot as plt
+from matplotlib.axes import Axes
+from matplotlib import ticker
 import h5py
 
 from mmg_toolbox.nexus import nexus_writer as nw
@@ -58,11 +59,12 @@ class Spectra:
     :param mode: str name of the spectra for plots
     :param process_label: str label of the process
     :param process: str describing a process done to the spectra
+    :param parameters: dict including any process parameters used
     """
     def __init__(self, energy: np.ndarray, signal: np.ndarray,
                  background: np.ndarray | None = None,
                  parents: list['Spectra'] | None = None, label: str = '',
-                 mode: str = '', process_label: str = 'raw', process: str = ''):
+                 mode: str = '', process_label: str = 'raw', process: str = '', parameters: dict | None = None):
         if parents is None:
             parents = []
         self.parents = parents
@@ -76,6 +78,7 @@ class Spectra:
         self.label = label
         self.process_label = process_label
         self.process = process
+        self.parameters = parameters or {}
         self.mode = mode
 
     """SPECTRA PROPERTIES"""
@@ -114,13 +117,15 @@ class Spectra:
         if issubclass(type(other), Spectra):
             return SpectraAverage(self, other)
         return Spectra(self.energy, self.signal + other, self.background, mode=self.mode, label=self.label,
-                       parents=[self], process_label='add_value', process=f"{self.mode} + {other}")
+                       parents=[self], process_label='add_value', process=f"{self.mode} + {other}",
+                       parameters={'value': other})
 
     def __mul__(self, other) -> Spectra:
         if issubclass(type(other), Spectra):
             raise TypeError("Cannot multiply Spectra")
         return Spectra(self.energy, self.signal * other, self.background, mode=self.mode, label=self.label,
-                       parents=[self], process_label='multiply', process=f'{self.mode} * {other}')
+                       parents=[self], process_label='multiply', process=f'{self.mode} * {other}',
+                       parameters={'value': other})
 
     def __sub__(self, other) -> Spectra:
         if other in self.parents:
@@ -130,7 +135,8 @@ class Spectra:
             # subtract new spectra from this spectra
             return SpectraSubtraction(self, other)
         return Spectra(self.energy, self.signal - other, self.background, mode=self.mode, label=self.label,
-                       parents=[self], process_label='subtract_value', process=f'{self.mode}-{other}')
+                       parents=[self], process_label='subtract_value', process=f'{self.mode}-{other}',
+                       parameters={'value': other})
 
     def trim(self, ev_from_start=5., ev_from_end=None) -> Spectra:
         """Trim spectra between energies"""
@@ -146,8 +152,16 @@ class Spectra:
         process = f"trip spectra between {en1:.2f} and {en2:.2f} eV\n"
         process += f"Spectra.energy = energy[{index1}:{index2}]\n"
         process += f"Spectra.signal = signal[{index1}:{index2}]\n"
+        parameters = {'ev_from_start': ev_from_start, 'ev_from_end': ev_from_end}
         return Spectra(en, sig, parents=[self], background=bkg, label=self.label,
-                       process_label=proc_label, process=process, mode=self.mode)
+                       process_label=proc_label, process=process, mode=self.mode, parameters=parameters)
+
+    def shift(self, energy_shift=1.0):
+        """Shift spectra in energy by [energy_shift] eV"""
+        proc_label = 'shift'
+        process = f"shift spectra in energy by {energy_shift:.2f} eV"
+        return Spectra(self.energy + energy_shift, self.signal, parents=[self], background=self.background, label=self.label,
+                       process_label=proc_label, process=process, mode=self.mode, parameters={'ev': energy_shift})
 
     def divide_by_signal_at_energy(self, energy1: float, energy2: float | None = None) -> Spectra:
         """Divide spectra by signal"""
@@ -160,8 +174,9 @@ class Spectra:
         process += f"energy2 = {energy2}\n"
         process += f"Spectra.signal_at_energy(energy1, energy2) = {value:.3f}\n"
         process += f"Spectra.signal = signal / {value:.3f}"
+        parameters = {'energy1': energy1, 'energy2': energy2}
         return Spectra(self.energy, sig, parents=[self], background=bkg, label=self.label,
-                       process_label=proc_label, process=process, mode=self.mode)
+                       process_label=proc_label, process=process, mode=self.mode, parameters=parameters)
 
     def divide_by_preedge(self, ev_from_start: float = 5) -> Spectra:
         """Divide by average of raw_signals at start"""
@@ -172,8 +187,9 @@ class Spectra:
         process = f"normalise signal to signal in the pre-edge region in first {ev_from_start} eV\n"
         process += f"mean(Spectra.signal[:{ev_from_start}]) = {value:.3f}\n"
         process += f"Spectra.signal = signal / {value:.3f}"
+        parameters = {'ev_from_start': ev_from_start}
         return Spectra(self.energy, sig, parents=[self], background=bkg, label=self.label,
-                       process_label=proc_label, process=process, mode=self.mode)
+                       process_label=proc_label, process=process, mode=self.mode, parameters=parameters)
 
     def divide_by_postedge(self, ev_from_end: float = 5) -> Spectra:
         """Divide by average of raw_signals at end"""
@@ -184,8 +200,9 @@ class Spectra:
         process = f"normalise signal to signal in the post-edge region in last {ev_from_end} eV\n"
         process += f"mean(Spectra.signal[:{ev_from_end} eV]) = {value:.3f}\n"
         process += f"Spectra.signal = signal / {value:.3f}"
+        parameters = {'ev_from_end': ev_from_end}
         return Spectra(self.energy, sig, parents=[self], background=bkg, label=self.label,
-                       process_label=proc_label, process=process, mode=self.mode)
+                       process_label=proc_label, process=process, mode=self.mode, parameters=parameters)
 
     def divide_by_peak(self) -> Spectra:
         """Divide by peak height [max(abs(signal))]"""
@@ -210,8 +227,9 @@ class Spectra:
         process += f"ev_from_end = {ev_from_end}\n"
         process += f"jump(Spectra.signal) = {jump:.3f}\n"
         process += f"Spectra.signal = signal / {jump:.3f}"
+        parameters = {'ev_from_start': ev_from_start, 'ev_from_end': ev_from_end}
         return Spectra(self.energy, sig, parents=[self], background=bkg, label=self.label,
-                       process_label=proc_label, process=process, mode=self.mode)
+                       process_label=proc_label, process=process, mode=self.mode, parameters=parameters)
 
     def divide_by_background(self, name='flat', *args, **kwargs) -> Spectra:
         """
@@ -227,8 +245,9 @@ class Spectra:
         process += f"kwargs: {str(kwargs)}\n"
         process += f"\nFit Report:\n{fit.fit_report() if fit is not None else 'None'}\n"
         process += f"\nResults:\n <bkg> = {np.mean(bkg):.3f}{bkg.shape}\nsignal = signal / bkg\n"
+        parameters = {'name': name} | kwargs
         return Spectra(self.energy, sig, parents=[self], background=bkg, label=self.label,
-                       process_label=proc_label, process=process, mode=self.mode)
+                       process_label=proc_label, process=process, mode=self.mode, parameters=parameters)
     divide_by_background.__doc__ += (
             "available functions:\n" +
             '\n'.join(f"'{name}': {doc}" for name, doc in BACKGROUND_DOCSTRINGS.items())
@@ -248,8 +267,9 @@ class Spectra:
         process += f"kwargs: {str(kwargs)}\n"
         process += f"\nFit Report:\n{fit.fit_report() if fit is not None else 'None'}\n"
         process += f"\nResults:\n <bkg> = {np.mean(bkg):.3f}\n  norm = {norm:.3f}\nsignal = (signal - bkg) / norm\n"
+        parameters = {'name': name} | kwargs
         return Spectra(self.energy, sig, parents=[self], background=bkg, label=self.label,
-                       process_label=proc_label, process=process, mode=self.mode)
+                       process_label=proc_label, process=process, mode=self.mode, parameters=parameters)
     remove_background.__doc__ += (
             "available functions:\n" +
             '\n'.join(f"'{name}': {doc}" for name, doc in BACKGROUND_DOCSTRINGS.items())
@@ -271,8 +291,9 @@ class Spectra:
         process += f"Edges:\n {edge_str}"
         process += f"\nFit Report:\n{fit.fit_report() if fit is not None else 'None'}\n"
         process += f"\nResults:\n  <bkg> = {np.mean(bkg)}\n  norm = {jump}\nsignal = (signal - bkg) / norm\n"
+        parameters = {'peak_width_ev': peak_width_ev, edges: edges}
         return Spectra(self.energy, sig, parents=[self], background=bkg, label=self.label,
-                       process_label=proc_label, process=process, mode=self.mode)
+                       process_label=proc_label, process=process, mode=self.mode, parameters=parameters)
 
     """SPECTRA NEXUS OUTPUT"""
 
@@ -285,6 +306,14 @@ class Spectra:
             sequence_index=sequence_index
         )
         return note
+
+    def create_nxparameters(self, parent: h5py.Group, name: str) -> h5py.Group:
+        parameters = nw.add_nxparameters(
+            root=parent,
+            group_name=name,
+            **self.parameters,
+        )
+        return parameters
 
     def create_nxdata(self, parent: h5py.Group, name: str, default: bool = False) -> h5py.Group:
         """NXxas NXdata entry, inlcuding energy, absorped beam and mode"""
@@ -421,7 +450,11 @@ class SpectraSubtraction(Spectra):
         if edges is None:
             edges = self.edges()
         if len(edges) != 2:
-            raise ValueError('edges must have length 2')
+            # expand L/M edges
+            expand_edges = spa.get_edge_energies(next(iter(edges), '')[:-1])
+            if len(expand_edges) != 2:
+                raise ValueError(f'2 Edges are required: {list(edges)}')
+            edges = expand_edges
         return sum(edges.values()) / len(edges)
 
     def calculate_sum_rules(self, n_holes: float, split_energy: float | None = None,
@@ -458,6 +491,9 @@ class SpectraSubtraction(Spectra):
         energy = self.energy
         difference = self.signal
         # average = self.average_subtracted_spectra().signal
+        edges = self.edges()
+        if split_energy is None and len(edges) == 1:
+            split_energy = energy.max()
         split_energy = split_energy or self.get_split_energy(edges)
         split_index = np.argmin(np.abs(energy - split_energy))
 
@@ -467,7 +503,26 @@ class SpectraSubtraction(Spectra):
         ax.fill_between(energy[split_index:], 0, difference[split_index:], color='b')
         return lines
 
-    def sum_rules_report(self, n_holes: float, element: str = '') -> str:
+    def plot_sum_rules_ratio(self, ax: Axes | None = None, *args, split_energy: float | None = None,
+                             edges: dict[str, float] | None = None, **kwargs) -> list[plt.Line2D]:
+        """
+        Create plots of spectra highlighting integration for sum rules, showing relative signal vs parents
+        """
+        energy = self.energy
+        difference = self.signal
+        ratio = max(max(abs(parent.signal)) for parent in self.parents)
+        # average = self.average_subtracted_spectra().signal
+        split_energy = split_energy or self.get_split_energy(edges)
+        split_index = np.argmin(np.abs(energy - split_energy))
+
+        ax = ax or plt.subplots(1, 1)[1]
+        lines = self.plot(ax, *args, **kwargs)
+        ax.fill_between(energy[:split_index], 0, difference[:split_index], color='r')
+        ax.fill_between(energy[split_index:], 0, difference[split_index:], color='b')
+        ax.yaxis.set_major_formatter(ticker.PercentFormatter(xmax=ratio))
+        return lines
+
+    def sum_rules_report(self, n_holes: float, element: str = '', split_energy: float | None = None) -> str:
         """
         Calculate sum rules of XMCD spectra and return report
 
@@ -475,19 +530,23 @@ class SpectraSubtraction(Spectra):
 
         Parameters
         :param n_holes: number of holes in absorbing ion
+        :param element: element symbol
+        :param split_energy: energy half-way between two edges
         :returns: str
         """
-        orb, spin = self.calculate_sum_rules(n_holes)
-        report = f"{element} n_holes = {n_holes}\nL = {orb:.3f} μB\nS = {spin:.3f} μB"
+        orb, spin = self.calculate_sum_rules(n_holes, split_energy=split_energy)
+        report = (f"{element} n_holes = {n_holes}, energy split = {split_energy} eV\n" +
+                  f"L = {orb:.3f} μB\nS = {spin:.3f} μB")
         return report
 
     def create_sum_rules_nxnote(self, n_holes: float, parent: h5py.Group,
-                                name: str, sequence_index: int | None = None, element: str = '') -> h5py.Group:
+                                name: str, sequence_index: int | None = None, element: str = '',
+                                split_energy: float | None = None) -> h5py.Group:
         note = nw.add_nxnote(
             root=parent,
             name=name,
             description=f"{self.label} {self.mode} {self.process_label} Sum Rules",
-            data=self.sum_rules_report(n_holes, element),
+            data=self.sum_rules_report(n_holes, element, split_energy),
             sequence_index=sequence_index
         )
         return note
@@ -521,7 +580,7 @@ class SpectraAverage(Spectra):
 
     def __repr__(self):
         return (
-            f"SpectraAverage('{self.label}', '{self.mode}', energy=array{self.energy.shape}, signal=array{self.signal.shape}," +
+            f"SpectraAverage('{self.label}', '{self.mode}', energy=array{self.energy.shape}, signal=array{self.signal.shape}, " +
             f"process_label='{self.process_label}')"
         )
 

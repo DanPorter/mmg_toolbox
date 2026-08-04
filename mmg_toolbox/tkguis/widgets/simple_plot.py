@@ -7,35 +7,37 @@ import matplotlib.pyplot as plt
 import numpy as np
 from numpy import ndarray
 
-from ..misc.config import C
-from ..misc.screen_size import get_figure_size
-from ..misc.matplotlib import ini_plot
+from ..misc.matplotlib import TkFigure
 from ..misc.logging import create_logger
 
 logger = create_logger(__file__)
 
 
-class SimplePlot:
+class SimplePlot(TkFigure):
     """
     Simple plot - single plot in frame with axes
     """
+    _y_axis_expansion_factor = 0.1
 
     def __init__(self, root: tk.Misc, xdata: list[float], ydata: list[float],
-                 xlabel: str = '', ylabel: str = '', title: str = '', config: dict | None = None):
-        self.root = root
-        self.config = config or {}
-        self._y_axis_expansion_factor = 0.1
-
-        fig_size = get_figure_size(root, self.config, C.plot_size)
-        self.fig, self.ax1, self.plot_list, self.toolbar = ini_plot(
-            frame=self.root,
-            figure_size=fig_size,
-            figure_dpi=self.config.get(C.plot_dpi, None),
+                 xlabel: str = '', ylabel: str = '', title: str = '',
+                 config: dict | None = None, fig_size: tuple[int, int] | None = None, fig_dpi: int = None):
+        super().__init__(
+            root=root,
+            config=config,
+            fig_size=fig_size,
+            fig_dpi=fig_dpi
         )
+        self.plot_list: list[plt.Line2D] = []
+        # Add axes
+        self.ax1 = self.fig.add_subplot(111)
+        self.ax1.set_autoscaley_on(True)
+        self.ax1.set_autoscalex_on(True)
         self.ax1.set_xlabel(xlabel)
         self.ax1.set_ylabel(ylabel)
         self.ax1.set_title(title)
-        self.plot(xdata, ydata)
+        if xdata:
+            self.plot(xdata, ydata)
 
     def plot(self, *args, **kwargs) -> list[plt.Line2D]:
         lines = self.ax1.plot(*args, **kwargs)
@@ -57,17 +59,18 @@ class SimplePlot:
             self.ax1.legend([]).set_visible(False)
 
     def plot_from_data(self, x_data: list[ndarray], y_data: list[ndarray], x_label: str = '', y_label: str = '',
-                       title: str = '', labels: list[str] | None = None):
+                       title: str = '', labels: list[str] | None = None, **kwargs):
         labels = [f"data #{n + 1}" for n in range(len(x_data))] if labels is None else labels
         self.reset_plot()
         for xdata, ydata, label in zip(x_data, y_data, labels):
-            lines = self.ax1.plot(np.ravel(xdata), np.ravel(ydata), label=label)
+            lines = self.ax1.plot(np.ravel(xdata), np.ravel(ydata), label=label, **kwargs)
             self.plot_list.extend(lines)
         self.update_labels(x_label=x_label, y_label=y_label, title=title, legend=True if len(labels) > 1 else False)
         self.update_axes()
 
     def update_from_data(self, x_data: list[ndarray], y_data: list[ndarray], x_label: str | None = None,
-                         y_label: str | None = None, title: str | None = None, legend: list[str] | None = None):
+                         y_label: str | None = None, title: str | None = None, legend: list[str] | None = None,
+                         **kwargs):
         if len(x_data) == len(self.plot_list):
             # replace lines
             legend = [None for _n in range(len(x_data))] if legend is None else legend
@@ -78,7 +81,7 @@ class SimplePlot:
             self.update_labels(x_label=x_label, y_label=y_label, title=title, legend=True if len(legend) > 1 else False)
             self.update_axes()
         else:
-            self.plot_from_data(x_data, y_data, x_label, y_label, title, legend)
+            self.plot_from_data(x_data, y_data, x_label, y_label, title, legend, **kwargs)
 
     def remove_lines(self):
         for obj in self.plot_list:
@@ -112,12 +115,8 @@ class SimplePlot:
         self.ax1.autoscale_view()
 
     def update_axes(self):
-        # self.ax1.relim()
-        # self.ax1.autoscale(True)
-        # self.ax1.autoscale_view()
         self._relim()
-        self.fig.canvas.draw()
-        self.toolbar.update()
+        self._update()
 
 
 class MultiAxisPlot(SimplePlot):

@@ -2,11 +2,12 @@
 Polarisation utilities
 """
 
+import re
 import numpy as np
 import h5py
 
 from mmg_toolbox.nexus.nexus_functions import nx_find, bytes2str
-from mmg_toolbox.nexus.nexus_names import NX_POLARISATION_FIELDS
+from mmg_toolbox.nexus.nexus_names import NX_POLARISATION_FIELDS, NX_POLARISATION_ANGLE
 
 
 class PolLabels:
@@ -15,8 +16,8 @@ class PolLabels:
     linear_arbitrary = 'la'
     circular_left = 'cl'
     circular_right = 'cr'
-    circular_positive = 'pc'  # == circular_right
     circular_negative = 'nc'  # == circular_left
+    circular_positive = 'pc'  # == circular_right
     linear_dichroism = 'xmld'
     circular_dichroism = 'xmcd'
 
@@ -56,9 +57,9 @@ def polarisation_label_from_stokes(*stokes_parameters: float) -> str:
     if not circular and np.sqrt(p1**2 + p2**2) > 0.9:
         return PolLabels.linear_arbitrary
     if circular and p3 > 0:
-        return PolLabels.circular_right
+        return PolLabels.circular_positive  # Note: This defines the XASSpectra polarisation name
     if circular and p3 < 0:
-        return PolLabels.circular_left
+        return PolLabels.circular_negative
     raise ValueError(f"Stokes parameters not recognized: {stokes_parameters}")
 
 
@@ -110,6 +111,10 @@ def opposite_polarisations(label: str | np.ndarray | None, arbitrary_angle: floa
             opposite = PolLabels.circular_left
         case PolLabels.circular_left:
             opposite = PolLabels.circular_right
+        case PolLabels.circular_positive:
+            opposite = PolLabels.circular_negative
+        case PolLabels.circular_negative:
+            opposite = PolLabels.circular_positive
         case PolLabels.linear_arbitrary:
             opposite = PolLabels.linear_arbitrary
         case _:
@@ -144,7 +149,45 @@ def get_polarisation(pol: h5py.Dataset | h5py.Group) -> str:
         if pol.size == 1:
             return polarisation_label_from_stokes(pol[...])
         return polarisation_label_from_stokes(*pol)
-    return check_polarisation(pol[()])
+    return check_polarisation(bytes2str(pol[()]))
+
+
+def get_polarisation_angle(pol: h5py.Dataset | h5py.Group) -> float:
+    """
+    Return linear arbitrary polarisation angle from h5py Dataset, Group or File
+    Returns NaN if polarisation is not linear or available
+
+    Example:
+        with h5py.File('data.nxs', 'r') as hdf:
+            angle = get_polarisation_angle(hdf)
+            # -or-
+            dataset = nx_find(hdf, 'NXbeam', 'incident_polarization_stokes')
+            angle = get_polarisation_angle(dataset)
+
+    Parameters:
+    :param pol: h5py.Dataset or h5py.Group object
+    :return: angle in degrees
+    """
+    if isinstance(pol, h5py.Group):
+        for label in NX_POLARISATION_ANGLE:
+            dataset = nx_find(pol, label)
+            if dataset:
+                return get_polarisation_angle(dataset)
+        return np.nan
+    if np.issubdtype(pol.dtype, np.number):
+        if pol.size == 1:
+            return float(pol[()])
+    return np.nan
+
+
+def get_i16_polarisation_from_phaseplate_cmd(cmd: str) -> str:
+    """Get polarisation label from I16 scan command using phase plate, based on +/- offset value"""
+    pattern = r'PP\d+[ud]\s*\[[^]]*,\s*([-+]?(?:\d*\.?\d+)(?:[eE][-+]?\d+)?)\]'
+    match = re.search(pattern, cmd)
+    if match:
+        offset = float(match.group(1))
+        return PolLabels.circular_negative if offset < 0 else PolLabels.circular_positive
+    return PolLabels.linear_horizontal
 
 
 def pol_subtraction_label(label: str):
@@ -152,7 +195,8 @@ def pol_subtraction_label(label: str):
     label = check_polarisation(label)
     if label in [PolLabels.linear_horizontal, PolLabels.linear_vertical, PolLabels.linear_arbitrary]:
         return PolLabels.linear_dichroism
-    elif label in [PolLabels.circular_left, PolLabels.circular_right]:
+    elif label in [PolLabels.circular_left, PolLabels.circular_right,
+                   PolLabels.circular_negative, PolLabels.circular_positive]:
         return PolLabels.circular_dichroism
     else:
         raise ValueError(f"Polarisation label not recognized: {label}")

@@ -6,12 +6,18 @@ from mmg_toolbox import start_gui
 
 # start_gui('/dls/science/groups/das/ExampleData/i16/azimuths/1108750.nxs')
 # start_gui('/dls/science/groups/das/ExampleData/i16/azimuths')
+# start_gui('/dls/science/groups/das/ExampleData/i10-1/nt42193-1')
 # start_gui('/dls/b07/data/2025/cm40617-5')
 start_gui()
+# start_gui('/scratch/grp66007/python/mmg_toolbox/examples/test.nxs')
+# start_gui('/scratch/grp66007/python/mmg_toolbox/examples/0-0 xmcd FeL3, L2 T=300K B=+0T.nxs')
 
-# from mmg_toolbox.tkguis.apps.nexus import create_nexus_plot_and_image
+#from mmg_toolbox.tkguis.apps.nexus import create_nexus_plot_and_image
 # create_nexus_plot_and_image('/dls/science/groups/das/ExampleData/i16/azimuths/1108750.nxs')
 # create_nexus_plot_and_image('/dls/i16/data/2025/nt43883-1/1113041.nxs')
+#create_nexus_plot_and_image('/dls/i16/data/2026/mm43750-1/1146004.nxs')
+#create_nexus_plot_and_image('/dls/i16/data/2026/cm44164-7/1132319.nxs')
+
 
 
 # from mmg_toolbox.tkguis.misc.styles import create_root

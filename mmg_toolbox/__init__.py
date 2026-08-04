@@ -5,15 +5,19 @@ Magnetic Materials Group Toolbox
 import sys
 from mmg_toolbox.utils.file_reader import data_file_reader
 from mmg_toolbox.utils.experiment import Experiment
+from mmg_toolbox.utils.env_functions import get_dls_visits, get_dls_visits_str, find_scan_files, scan_number_mapping
+from mmg_toolbox.nexus import NexusScan, NexusDataHolder
 from mmg_toolbox.beamline_metadata import metadata, xas_metadata, nexus_metadata
 from mmg_toolbox.scripts.experiment_startup import create_notebooks
 
-__version__ = '0.6.1'
-__date__ = '17/03/2026'
+__version__ = '0.6.4'
+__date__ = '22/07/2026'
 __author__ = 'Dan Porter'
 
 __all__ = ['start_gui', 'version_info', 'title', 'module_info',
-           'data_file_reader', 'Experiment', 'metadata', 'xas_metadata', 'nexus_metadata',
+           'data_file_reader', 'Experiment', 'NexusScan', 'NexusDataHolder',
+           'get_dls_visits', 'get_dls_visits_str', 'find_scan_files', 'scan_number_mapping',
+           'metadata', 'xas_metadata', 'nexus_metadata',
            'create_notebooks']
 
 
@@ -32,10 +36,13 @@ def title():
 
 def module_info():
     out = 'Python version %s' % sys.version
-    out += '\n%s' % version_info()
+    out += '\n at: %s' % sys.executable
+    out += '\n %s: %s' % (version_info(), __file__)
     # Modules
     import numpy
     out += '\n     numpy version: %s' % numpy.__version__
+    import h5py
+    out += '\n      h5py version: %s' % h5py.__version__
     try:
         import matplotlib
         out += '\nmatplotlib version: %s' % matplotlib.__version__
@@ -43,9 +50,9 @@ def module_info():
         out += '\nmatplotlib version: None'
     try:
         import hdfmap
-        out += '\nhdfmap version: %s (%s)' % (hdfmap.__version__, hdfmap.__date__)
+        out += '\n    hdfmap version: %s (%s)' % (hdfmap.__version__, hdfmap.__date__)
     except ImportError:
-        out += '\nhdfmap version: Not available'
+        out += '\n    hdfmap version: Not available'
     try:
         import tkinter
         out += '\n   tkinter version: %s' % tkinter.TkVersion

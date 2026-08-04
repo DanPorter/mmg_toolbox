@@ -8,7 +8,12 @@ import numpy as np
 import os
 import h5py
 
-from mmg_toolbox.xas import Spectra, SpectraContainer, load_xas_scans, average_polarised_scans
+from mmg_toolbox import data_file_reader
+from mmg_toolbox.xas import (
+    Spectra, SpectraContainer, SpectraContainerSubtraction, SpectraContainerAverage,
+    load_xas_scans, average_polarised_scans, polarised_pairs, pair_scans, average_scans
+)
+from mmg_toolbox.xas.nxxas_loader import is_nxxas, is_processed, is_i16vortex, is_subtraction
 from . import only_dls_file_system
 from .example_files import FILES_DICT
 
@@ -41,6 +46,8 @@ def test_create_spectra():
     spectra7 = spectra1.remove_background('flat')
     assert spectra7.signal.max() == approx(0)
     assert spectra7.process_label == 'flat'
+    spectra8 = spectra1.shift(3)
+    assert spectra8.energy.max() == approx(energy[-1] + 3)
 
 
 def test_spectra_container():
@@ -65,6 +72,7 @@ def test_spectra_container():
 
     container3 = container + container + container
     assert container3.spectra['tey'].signal.max() == approx(3)
+    assert len(container3.parents) == 3
 
     pol1 = container3.copy('pc')
     pol1.metadata.pol = 'pc'
@@ -73,16 +81,42 @@ def test_spectra_container():
     container4 = pol1 - pol2
     assert container4.spectra['tey'].signal.max() == approx(0)
     steps = container4.analysis_steps()
-    assert len(steps) == 2
+    assert len(steps) == 3
     steps_string = container4.analysis_steps_str()
     assert len(steps_string) == approx(569, abs=50)
     assert 'xmcd' in steps_string
 
 
+def test_average_spectra():
+    energy = np.arange(700, 730, 0.1)
+    signal = 3 * np.ones(len(energy))
+    spectra = {mode: Spectra(energy, signal, label='test', mode=mode) for mode in ['tey', 'tfy']}
+    container1 = SpectraContainer('scan1', spectra)
+    container2 = SpectraContainer('scan2', spectra)
+    container3 = SpectraContainer('scan3', spectra)
+
+    av_scan = average_scans(container1, container2, container3)
+    assert len(av_scan.parents) == 3
+    assert repr(av_scan) == "SpectraContainerAverage('scan1+scan2+scan3', 'average', ['tey', 'tfy'])"
+    av_scan = average_scans(container1, container2, container3, container2)
+    assert len(av_scan.parents) == 4
+    assert av_scan.parents[0].parents == ()
+    assert repr(av_scan) == "SpectraContainerAverage('scan1+..+scan2', 'average', ['tey', 'tfy'])"
+    assert repr(av_scan.spectra['tey']) == "SpectraAverage('test+test+test+test', 'tey', energy=array(300,), signal=array(300,), process_label='average')"
+
+    av_scan = SpectraContainerAverage(container1, container2, container3)
+    assert repr(av_scan) == "SpectraContainerAverage('scan1+scan2+scan3', 'average', ['tey', 'tfy'])"
+    assert len(av_scan.parents) == 3
+    av_scan = SpectraContainerAverage(container1, container2, av_scan)
+    assert repr(av_scan) == "SpectraContainerAverage('scan1+..+scan3', 'average', ['tey', 'tfy'])"
+    assert len(av_scan.parents) == 5
+
+
 @only_dls_file_system
 def test_load_xas_scans():
+    assert is_nxxas(FILES_DICT['i06-1 zacscan'])
     spectra, = load_xas_scans(FILES_DICT['i06-1 zacscan'], dls_loader=True)
-    assert spectra.metadata.pol == 'cr'
+    assert spectra.metadata.pol == 'pc'
     assert spectra.metadata.mag_field == approx(0)
 
     spectra = spectra.trim(ev_from_start=2., ev_from_end=None)
@@ -90,6 +124,20 @@ def test_load_xas_scans():
     rembk = norm.remove_background('exp')
 
     assert rembk.spectra['tey'].signal.max() == approx(2.82, abs=0.03)
+
+    # Write nexus
+    rembk.write_nexus('test_spectra.nxs')
+    assert os.path.isfile('test_spectra.nxs')
+    assert is_processed('test_spectra.nxs')
+
+    with h5py.File('test_spectra.nxs', 'r') as hdf:
+        assert isinstance(hdf['/processed/tey/absorbed_beam'], h5py.Dataset)
+    check, = load_xas_scans('test_spectra.nxs')
+    assert len(check.spectra) == 2
+    assert len(check.parents) == 0
+    assert isinstance(check, SpectraContainer)
+    scan = data_file_reader('test_spectra.nxs')
+    assert all(scan('signal') == rembk.spectra['tey'].signal)
 
 
 @only_dls_file_system
@@ -101,7 +149,7 @@ def test_average_polarised_scans():
         FILES_DICT['i10-1 Fe L3,2 -1T nc'],
     ]
     all_spectra = load_xas_scans(*files, dls_loader=True)
-    assert all_spectra[0].metadata.pol == 'cr'
+    assert all_spectra[0].metadata.pol == 'pc'
     assert all_spectra[0].metadata.mag_field == approx(1)
 
     all_spectra = [
@@ -111,14 +159,66 @@ def test_average_polarised_scans():
 
     pol1, pol2 = average_polarised_scans(*all_spectra)
     xmcd = pol1 - pol2
+    xmcd = xmcd
     assert xmcd.spectra['tey'].signal.max() == approx(0.145, abs=0.001)
     assert 'xmcd' == xmcd.name
     assert 'xmcd' in xmcd.analysis_steps_str()
+    assert xmcd.parents[0].parents[0].parents[0].parents[0].parents == ()
+    assert xmcd.get_raw_filename() == FILES_DICT['i10-1 Fe L3,2 +1T pc']
     orbital, spin = xmcd.calculate_sum_rules()
     assert orbital == approx(-0.088, abs=0.001)
     assert spin == approx(0.008, abs=0.001)
     report = xmcd.sum_rules_report()
-    assert ' n_holes = 4\nL = -0.088 μB\nS = 0.008 μB' in report
+    assert ' n_holes = 4, energy split = None eV\nL = -0.088 μB\nS = 0.008 μB' in report
+
+    # Test align
+    pol1_a = pol1.align_spectra()
+    pol2_a = pol2.align_spectra()
+    xmcd_a = pol1_a - pol2_a
+    assert pol1_a.spectra['tey'].parents[0].process_label == 'shift'
+    assert pol1_a.spectra['tey'].parents[0].parameters.get('ev', 0) == approx(-0.02, abs=0.001)
+    orbital, spin = xmcd_a.calculate_sum_rules()
+    assert orbital == approx(-0.088, abs=0.002)
+    assert spin == approx(0.008, abs=0.002)
+
+    # Write nexus
+    xmcd.write_nexus('test_xmcd.nxs')
+    assert os.path.isfile('test_xmcd.nxs')
+    assert is_processed('test_xmcd.nxs')
+
+    # Read nexus
+    with h5py.File('test_xmcd.nxs', 'r') as hdf:
+        assert isinstance(hdf['/xmcd/tey/absorbed_beam'], h5py.Dataset)
+    check, = load_xas_scans('test_xmcd.nxs')
+    assert len(check.spectra) == 2
+    assert len(check.parents) == 2
+    assert check.parents[0].parents == ()  # TODO: read full history
+    assert isinstance(check, SpectraContainerSubtraction)
+    scan = data_file_reader('test_xmcd.nxs')
+    assert all(scan('signal') == xmcd.spectra['tey'].signal)
+
+    os.remove('test_xmcd.nxs')
+
+
+@only_dls_file_system
+def test_find_pairs():
+    files = [
+        FILES_DICT['i10-1 Fe L3,2 +1T pc'],
+        FILES_DICT['i10-1 Fe L3,2 -1T pc'],
+        FILES_DICT['i10-1 Fe L3,2 +1T nc'],
+        FILES_DICT['i10-1 Fe L3,2 -1T nc'],
+    ]
+    all_spectra = load_xas_scans(*files, dls_loader=True)
+    pol_pairs = polarised_pairs(*all_spectra)
+    assert len(pol_pairs) == 2
+    scan1, scan2 = pol_pairs[0]
+    assert scan1.metadata.pol != scan2.metadata.pol
+
+    pairs = pair_scans(*all_spectra)
+    assert len(pairs) == 2
+    scan1, scan2 = pairs[0]
+    assert scan1.metadata.pol == scan2.metadata.pol
+    assert scan1.metadata.mag_field == approx(-scan2.metadata.mag_field)
 
 
 def test_write_outputs():
@@ -130,9 +230,14 @@ def test_write_outputs():
     container = container.divide_by_preedge()
     container.write_nexus('test_xas.nxs')
     assert os.path.isfile('test_xas.nxs')
+    assert is_processed('test_xas.nxs')
 
     with h5py.File('test_xas.nxs', 'r') as hdf:
-        assert isinstance(hdf['/entry/divide_by_preedge/tey'], h5py.Dataset)
+        assert isinstance(hdf['/test/divide_by_preedge_1/tey/absorbed_beam'], h5py.Dataset)
+        assert isinstance(hdf['/test/tey/absorbed_beam'], h5py.Dataset)
+    check, = load_xas_scans('test_xas.nxs')
+    assert len(check.spectra) == 2
+    assert len(check.parents) == 0
 
     os.remove('test_xas.nxs')
 
@@ -143,3 +248,103 @@ def test_write_outputs():
     assert tey.shape == signal.shape
 
     os.remove('test_xas.csv')
+
+
+def test_write_average_outputs():
+    from mmg_toolbox.fitting.functions import gauss
+    energy = np.arange(700, 730, 0.1)
+    signal = gauss(energy, height=30, cen=715, fwhm=3, bkg=6)
+    scans = []
+    for n in range(5):
+        spectra = {mode: Spectra(energy, signal, label=f'test{n}', mode=mode) for mode in ['tey', 'tfy']}
+        container = SpectraContainer(f'test{n}', spectra)
+        container = container.divide_by_preedge()
+        container = container.remove_background('flat')
+        scans.append(container)
+    av_spectra = average_scans(*scans)
+
+    av_spectra.write_nexus('test_av_xas.nxs')
+    assert os.path.isfile('test_av_xas.nxs')
+    assert is_processed('test_av_xas.nxs')
+
+    with h5py.File('test_av_xas.nxs', 'r') as hdf:
+        assert isinstance(hdf['/test0+..+test4/tey/absorbed_beam'], h5py.Dataset)
+    check, = load_xas_scans('test_av_xas.nxs')
+    assert len(check.spectra) == 2
+    assert len(check.parents) == 5
+
+    os.remove('test_av_xas.nxs')
+
+
+def test_write_subtracted_outputs():
+    energy = np.arange(700, 730, 0.1)
+    signal = 3 * np.ones(len(energy))
+    spectra1 = {mode: Spectra(energy, signal, label='test1', mode=mode) for mode in ['tey', 'tfy']}
+    container1 = SpectraContainer('test1', spectra1)
+    container1 = container1.divide_by_preedge()
+    container1.metadata.pol = 'cr'
+    spectra2 = {mode: Spectra(energy, signal * 1.2, label='test2', mode=mode) for mode in ['tey', 'tfy']}
+    container2 = SpectraContainer('test2', spectra2)
+    container2 = container2.divide_by_preedge()
+    container2.metadata.pol = 'cl'
+
+    subtracted = container1 - container2
+    subtracted.write_nexus('test_subtracted.nxs')
+    assert os.path.isfile('test_subtracted.nxs')
+    assert is_subtraction('test_subtracted.nxs')
+
+    with h5py.File('test_subtracted.nxs', 'r') as hdf:
+        assert isinstance(hdf['/xmcd/tey/absorbed_beam'], h5py.Dataset)
+        assert isinstance(hdf['/xmcd/tfy/absorbed_beam'], h5py.Dataset)
+        assert isinstance(hdf['/xmcd/sum_rules/tey/data'], h5py.Dataset)
+    check, = load_xas_scans('test_subtracted.nxs')
+    assert len(check.spectra) == 2
+    assert len(check.parents) == 2
+    assert isinstance(check, SpectraContainerSubtraction)
+
+    os.remove('test_subtracted.nxs')
+
+    subtracted.write_csv('test_subtracted.csv')
+    assert os.path.isfile('test_subtracted.csv')
+
+    energy2, tey1, tfy1, tey2, tfy2, tey_xmcd, tfy_xmcd = np.loadtxt('test_subtracted.csv', delimiter=',').T
+    assert tey_xmcd.shape == signal.shape
+
+    os.remove('test_subtracted.csv')
+
+
+@only_dls_file_system
+def test_i16_vortex_spectra():
+    # single energy detector spectrum
+    filename = FILES_DICT['i16 xsp3 x scan']
+    assert is_i16vortex(filename)
+    spectra, = load_xas_scans(filename)
+    # spectra, = load_xas_scans('/dls/i16/data/2026/cm44164-9/1145818.nxs')
+    # spectra, = load_xas_scans('/dls/i16/data/2026/cm44164-9/1145910.nxs')
+    assert 'xes' in spectra.spectra
+    assert len(spectra.spectra['xes'].signal) == 4096
+
+    # energy scan
+    f1 = FILES_DICT['i16 xsp3 energy scan lh']
+    f2 = FILES_DICT['i16 xsp3 energy scan lv']
+    assert is_i16vortex(f1) and is_i16vortex(f2)
+    lh, lv = load_xas_scans(f1, f2)
+    assert 'pfy' in lh.spectra and 'tfy' in lh.spectra
+    assert lh.metadata.pol == 'lh' and lv.metadata.pol == 'lv'
+    xmld = lh - lv
+    assert xmld.calculate_signal_ratio() == approx({'pfy': 0.517388, 'tfy': 0.416337}, 0.001)
+
+
+@only_dls_file_system
+def test_i16_vortex_spectra_with_roi():
+    # energy scan
+    f1 = FILES_DICT['i16 xsp3 energy scan lh']
+    scan = data_file_reader(f1)
+    scan.map.add_roi('new_window', 1, 915, 2, 100, 'xsp3')
+    assert 'new_window_total' in scan.rois()
+    spectra = scan.xas_spectra()
+    assert 'new_window' in spectra.spectra
+
+    spectra2 = scan.xas_spectra(mode='Window_2')
+    assert list(spectra2.spectra.keys()) == ['Window_2']
+    assert spectra2.metadata.default_mode == 'Window_2'

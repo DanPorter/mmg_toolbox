@@ -7,6 +7,7 @@ import json
 import os
 import re
 import numpy as np
+from scipy.signal import correlate
 from lmfit.model import ModelResult
 from lmfit.models import LinearModel, QuadraticModel, ExponentialModel, StepModel, PolynomialModel
 
@@ -53,10 +54,24 @@ def find_edge_labels(string: str) -> list[str]:
     edges = regex_edges.findall(string)
     edge_labels = []
     for edge in edges:
+        # Expand edges to common multiples
+        if edge == 'L':
+            edge = 'L32'
+        elif edge == 'M':
+            edge = 'M45'
         edge_labels.append(f"{element} {edge[:2].upper()}")
         if len(edge) == 3:
             edge_labels.append(f"{element} {edge[0].upper()}{edge[2]}")
     return edge_labels
+
+
+def single_element_label(*edge_labels: str) -> tuple[str, str]:
+    """Return element, edges"""
+    # use first unit element
+    elements = {regex_element.match(label).group() for label in edge_labels}
+    element = next(iter(elements))
+    edges = [next(regex_edges.finditer(label)).group() for label in edge_labels if element in label]
+    return element, ', '.join(edges)
 
 
 def _load_edge_file(edges: list[str] | None = SEARCH_EDGES) -> dict[str, float]:
@@ -124,7 +139,7 @@ def xray_edges_in_range(min_energy_ev: float, max_energy_ev: float | None = None
 
 
 def energy_range_edge_label(min_energy_ev: float, max_energy_ev: float | None = None,
-                            energy_range_ev: float = 10., search_edges: tuple[str] = SEARCH_EDGES) -> tuple[str, str]:
+                            energy_range_ev: float = 10., search_edges: list[str] | None = None) -> tuple[str, str]:
     """
     Return mode string for x-ray absorption edges in energy range
       raises ValueError is no edges are found or if multiple non-equivalent edges are found
@@ -135,7 +150,16 @@ def energy_range_edge_label(min_energy_ev: float, max_energy_ev: float | None = 
     :param search_edges: if not None, only return energies for these edges, e.g. ('L3', 'L2')
     :return: element, mode strings, e.g. 'Mn', 'L2, L3'
     """
-    edges = xray_edges_in_range(min_energy_ev, max_energy_ev, energy_range_ev, search_edges)
+    if search_edges:
+        edges = xray_edges_in_range(min_energy_ev, max_energy_ev, energy_range_ev, search_edges)
+    else:
+        # iterate through likely edges
+        likely_edges = (['L3', 'L2'], ['K'], ['M4', 'M5'], None)
+        for search_edges in likely_edges:
+            edges = xray_edges_in_range(min_energy_ev, max_energy_ev, energy_range_ev, search_edges)
+            if edges:
+                break
+
     if len(edges) == 1:
         label, = edges.keys()
         element, edge = label.split()
@@ -147,7 +171,23 @@ def energy_range_edge_label(min_energy_ev: float, max_energy_ev: float | None = 
         if element1 != element2:
             raise ValueError(f"xray absorption edges of multiple edges present: {label1}, {label2}")
         return element1, f"{edge1}, {edge2}"
+    if len(edges) >= 2:
+        # list elements with lists of edges
+        edge_options = {
+            element: [edge.split()[1] for edge in edges if element in edge]
+            for element in {label.split()[0] for label in edges}
+        }
+        # pick first edge
+        edge_pick = next(iter(edge_options))
+        return edge_pick, ', '.join(edge_options[edge_pick])
     raise ValueError(f"xray absorption edge not found: {edges} edges at energy {min_energy_ev} eV")
+
+def nearest_edge_label(energy_ev: float) -> tuple[str, str]:
+    """Return the element edges nearest the energy"""
+    all_edge_energies, all_edge_labels = load_edge_energies(None)
+    nearest_edge = all_edge_labels[np.argmin(abs(all_edge_energies - energy_ev))]
+    expand_edges = find_edge_labels(str(nearest_edge).strip('12345'))  # expand to L23 etc
+    return single_element_label(*expand_edges)
 
 
 def average_energy_scans(*args: np.ndarray):
@@ -162,7 +202,6 @@ def average_energy_spectra(energy: np.ndarray, *args: tuple[np.ndarray, np.ndarr
     """
     Average energy spectra, interpolating at given energy
 
-    E.G.
         energy = average_energy_scans(en1, en2)
         signal = combine_energy_scans(energy, (en1, sig1), (en2, sig2))
 
@@ -174,6 +213,42 @@ def average_energy_spectra(energy: np.ndarray, *args: tuple[np.ndarray, np.ndarr
     for n, (en, dat) in enumerate(args):
         data[n, :] = np.interp(energy, en, dat)
     return data.mean(axis=0)
+
+
+def find_shifts(*args: tuple[np.ndarray, np.ndarray], differentiate: bool = False) -> list[float]:
+    """
+    Find relative shifts between energy spectra to align on a common energy grid
+
+        shifts = find_shifts((en1, sig1), (en2, sig2))
+        energy = average_energy_scans(en1, en2)
+        signal = combine_energy_scans(energy, (en1+shifts[0], sig1), (en2+shifts[1], sig2))
+
+    :param args: (mes_energy, mes_signal): m pairs of arrays for energy and measurement
+    :param differentiate: (bool) whether to differentiate the signal before cross-correlation
+    :returns shifts: list[m] of energy shifts
+    """
+    i_energy = np.linspace(
+        max(en.min() for (en, sig) in args),
+        min(en.max() for (en, sig) in args),
+        10 * max(len(en) for (en, sig) in args)
+    )
+    en_step = i_energy[1] - i_energy[0]
+    i_signal = [
+        np.interp(i_energy, en, sig)
+        for en, sig in args
+    ]
+    if differentiate:
+        i_signal = [
+            np.gradient(i_sig, i_energy) for i_sig in i_signal
+        ]
+    corr = [
+        correlate(i_signal[0], i_sig, mode='full')
+        for i_sig in i_signal
+    ]
+    return [
+        en_step * (np.argmax(c) - len(i_energy) - 1)
+        for c in corr
+    ]
 
 
 def preedge_signal(energy: np.ndarray, signal: np.ndarray, ev_from_start: float = 5.) -> float:

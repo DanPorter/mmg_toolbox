@@ -32,44 +32,46 @@ class TitleWindow:
         self.visits = {}
 
         frm = ttk.Frame(self.root)
-        frm.pack(side=tk.TOP, fill=tk.X, expand=tk.YES)
-        ttk.Label(frm, textvariable=self.beamline, style="title.TLabel").pack(side=tk.RIGHT)
+        frm.pack(side='top', fill='x', expand=True)
+        ttk.Label(frm, textvariable=self.beamline, style="title.TLabel").pack(side='right')
 
         frm = ttk.Frame(self.root)
-        frm.pack(side=tk.TOP, fill=tk.X, expand=tk.YES)
-        ttk.Label(frm, text='Visit:').pack(side=tk.LEFT, padx=4)
+        frm.pack(side='top', fill='x', expand=True)
+        ttk.Label(frm, text='Visit:').pack(side='left', padx=4)
         visits = list(self.visits.keys())
         first = next(iter(visits), '')
         self.visit_menu = ttk.OptionMenu(frm, self.visit, first,*visits, command=self.choose_visit)
-        self.visit_menu.pack(side=tk.LEFT, padx=4)
-        ttk.Button(frm, text='Check', command=self.open_file_browser, width=10).pack(side=tk.LEFT)
-        ttk.Label(frm, textvariable=self.summary).pack(side=tk.LEFT, padx=2)
+        self.visit_menu.pack(side='left', padx=4)
+        ttk.Button(frm, text='Check', command=self.open_file_browser, width=10).pack(side='left')
+        ttk.Label(frm, textvariable=self.summary).pack(side='left', padx=2)
 
         frm = ttk.Frame(self.root)
-        frm.pack(side=tk.TOP, fill=tk.X, expand=tk.YES, padx=4)
-        ttk.Label(frm, text='Data Dir:', width=15).pack(side=tk.LEFT, padx=4)
-        ttk.Entry(frm, textvariable=self.data_dir, width=60).pack(side=tk.LEFT)
-        ttk.Button(frm, text='Browse', command=self.browse_datadir).pack(side=tk.LEFT)
+        frm.pack(side='top', fill='x', expand=True, padx=4)
+        ttk.Label(frm, text='Data Dir:', width=15).pack(side='left', padx=4)
+        var = ttk.Entry(frm, textvariable=self.data_dir, width=60)
+        var.pack(side='left')
+        var.bind('<Return>', lambda e: self.dls_directories(self.data_dir.get()))
+        ttk.Button(frm, text='Browse', command=self.browse_datadir).pack(side='left')
 
         frm = ttk.Frame(self.root)
-        frm.pack(side=tk.TOP, fill=tk.X, expand=tk.YES, padx=4)
-        ttk.Label(frm, text='Analysis Dir:', width=15).pack(side=tk.LEFT, padx=4)
-        ttk.Entry(frm, textvariable=self.proc_dir, width=60).pack(side=tk.LEFT)
-        ttk.Button(frm, text='Browse', command=self.browse_analysis).pack(side=tk.LEFT)
+        frm.pack(side='top', fill='x', expand=True, padx=4)
+        ttk.Label(frm, text='Analysis Dir:', width=15).pack(side='left', padx=4)
+        ttk.Entry(frm, textvariable=self.proc_dir, width=60).pack(side='left')
+        ttk.Button(frm, text='Browse', command=self.browse_analysis).pack(side='left')
 
         frm = ttk.Frame(self.root)
-        frm.pack(side=tk.TOP, fill=tk.X, expand=tk.YES, padx=4)
-        ttk.Label(frm, text='Notebook Dir:', width=15).pack(side=tk.LEFT, padx=4)
-        ttk.Entry(frm, textvariable=self.notebook_dir, width=60).pack(side=tk.LEFT)
-        ttk.Button(frm, text='Browse', command=self.browse_notebook).pack(side=tk.LEFT)
+        frm.pack(side='top', fill='x', expand=True, padx=4)
+        ttk.Label(frm, text='Notebook Dir:', width=15).pack(side='left', padx=4)
+        ttk.Entry(frm, textvariable=self.notebook_dir, width=60).pack(side='left')
+        ttk.Button(frm, text='Browse', command=self.browse_notebook).pack(side='left')
 
         frm = ttk.Frame(self.root)
-        frm.pack(side=tk.TOP, fill=tk.X, expand=tk.YES, pady=6)
-        ttk.Button(frm, text='Data Viewer', command=self.open_data_viewer, width=20).pack(side=tk.LEFT)
-        # ttk.Button(frm, text='NeXus Browser', command=self.open_file_browser, width=20).pack(side=tk.LEFT)
-        ttk.Button(frm, text='Log Viewer', command=self.open_log_viewer, width=20).pack(side=tk.LEFT)
-        ttk.Button(frm, text='Notebook Browser', command=self.open_notebook_browser, width=20).pack(side=tk.LEFT)
-        ttk.Button(frm, text='Processing', command=self.open_script_runner, width=20).pack(side=tk.LEFT)
+        frm.pack(side='top', fill='x', expand=True, pady=6)
+        ttk.Button(frm, text='Data Viewer', command=self.open_data_viewer, width=20).pack(side='left')
+        # ttk.Button(frm, text='NeXus Browser', command=self.open_file_browser, width=20).pack(side='left')
+        ttk.Button(frm, text='Log Viewer', command=self.open_log_viewer, width=20).pack(side='left')
+        ttk.Button(frm, text='Notebook Browser', command=self.open_notebook_browser, width=20).pack(side='left')
+        ttk.Button(frm, text='Processing', command=self.open_script_runner, width=20).pack(side='left')
         t1 = time()
         logger.info(f"init time: {t1-t0}s")
         # run file-system functions in a thread to speed up the start time
@@ -95,7 +97,7 @@ class TitleWindow:
     def menu_items(self):
         menu = {
             'Recent Files': {
-                file: lambda x=file: self.data_dir.set(x)
+                file: lambda x=file: self.dls_directories(x)
                 for file in self.config.get(C.recent_data_directories)
             },
             'Beamline': {
@@ -176,17 +178,16 @@ class TitleWindow:
 
     def open_notebook_browser(self):
         from ..apps.file_browser import create_jupyter_browser
+        self.set_current_directories()
         create_jupyter_browser(self.root, self.notebook_dir.get())
 
     def open_script_runner(self):
         from ..apps.multi_scan_analysis import create_multi_scan_analysis
-        folders = {
-            C.default_directory: self.data_dir.get(),
-            C.processing_directory: self.proc_dir.get(),
-            C.notebook_directory: self.notebook_dir.get(),
-        }
-        self.config.update(folders)
-        create_multi_scan_analysis(self.root, self.config)
+        self.set_current_directories()
+        create_multi_scan_analysis(
+            parent=self.root,
+            config=self.config
+        )
 
 
 

@@ -138,7 +138,7 @@ class ScanFitManager:
             'fit': res.res.best_fit,
             f"fit_{yname}": res.res.best_fit,
         })
-        self.scan.map.add_local(**output)
+        self.scan.add_local(**output)
 
         if print_result:
             print(self.scan.title())
@@ -156,8 +156,7 @@ class ScanFitManager:
         """
         Fit x,y data to a peak model using lmfit
 
-        E.G.:
-          res = self.multi_peak_fit('axes', 'signal', npeaks=2, model='Gauss')
+          res = scan.fit.multi_peak_fit('axes', 'signal', npeaks=2, model='Gauss')
           print(res)
           res.plot()
           val1 = res.p1_amplitude
@@ -222,7 +221,7 @@ class ScanFitManager:
             'fit': res.res.best_fit,
             f"fit_{yname}": res.res.best_fit,
         })
-        self.scan.map.add_local(**output)
+        self.scan.add_local(**output)
 
         if print_result:
             print(self.scan.title())
@@ -237,7 +236,6 @@ class ScanFitManager:
         """
         Fit data from scan against lmfit model
 
-        Example:
             from lmfit.models import GaussianModel, LinearModel
             mod = GaussainModel(prefix='p1_') + LinearModel(prefix='bkg_')
             pars = mod.make_params()
@@ -291,7 +289,7 @@ class ScanFitManager:
         comps = res.eval_components(x=xdata)
         for component in comps.keys():
             fit_dict[f"{component}fit"] = comps[component]
-        self.scan.map.add_local(**fit_dict)
+        self.scan.add_local(**fit_dict)
 
         if print_result:
             print(self.scan.title())

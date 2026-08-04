@@ -7,6 +7,7 @@ from threading import Thread
 
 import hdfmap
 
+from ..misc.config import C
 from ..misc.styles import create_root
 from ..misc.logging import create_logger
 from .nexus_plot import NexusMultiAxisPlot
@@ -71,7 +72,7 @@ class NexusPlotAndImage(NexusMultiAxisPlot, NexusDetectorImage):
 
     def update_index_line(self):
         """update image_widget update_image to add plot line"""
-        xvals, yvals = self.line.get_data()
+        xvals, yvals = self.plot_list[0].get_data()
         index = self.view_index.get()
         ylim = self.ax1.get_ylim()
         xval = xvals[index]
@@ -81,13 +82,17 @@ class NexusPlotAndImage(NexusMultiAxisPlot, NexusDetectorImage):
     def _update_image(self, filename: str, hdf_map: hdfmap.NexusMap):
         self.axis_name.set(self.axes_x.get())
         NexusDetectorImage.update_image_data_from_file(self, filename, hdf_map=hdf_map)
-        self.update_index_line()
 
     def update_data_from_files(self, *filenames: str, hdf_map: hdfmap.NexusMap | None = None):
         hdf_map = hdf_map or hdfmap.create_nexus_map(filenames[0])
+        # 2D line data
         NexusMultiAxisPlot.update_data_from_files(self, *filenames, hdf_map=hdf_map)
+        # pack/hide plots
         self.pack_frames(hdf_map)
+        # Image data
         if hdf_map.image_data:
+            self.view_index.set(0)
+            self.update_index_line()
             th = Thread(target=self._update_image, args=(filenames[0], hdf_map))
             th.daemon = True
             th.start()
@@ -95,17 +100,30 @@ class NexusPlotAndImage(NexusMultiAxisPlot, NexusDetectorImage):
             self.index_line.set_data([], [])
 
     def update_image(self, event=None):
-        super().update_image(event)
+        NexusDetectorImage.update_image(self, event)
         self.update_index_line()
 
     def add_config_rois(self):
         super().add_config_rois()
         # add rois to signal drop-down
+        current_items = [self.listbox.item(item_id, 'text') for item_id in self.listbox.get_children()]
         for item in self.roi_names:
-            self.listbox.insert("", tk.END, text=item)
+            if item not in current_items:
+                self.listbox.insert("", tk.END, text=item)
+
+    def add_roi(self, name: str, cen_i: int | str, cen_j: int | str,
+                wid_i: int = 30, wid_j: int = 30, image_name: str = 'IMAGE'):
+        super().add_roi(name, cen_i, cen_j, wid_i, wid_j, image_name)
+        select_name = f"{name}_total"
+        iid = next((iid for iid in self.listbox.get_children() if self.listbox.item(iid, 'text') == select_name), None)
+        if iid:
+            self.listbox.selection_set(iid)
+            self.listbox.focus(iid)
+            self.listbox.see(iid)
 
     def new_window(self):
-        window = create_root(self.filename, self.parent)
+        title = self.map.format_hdf(self.map.load_hdf(), self.config.get(C.scan_title, '')) or self.filename
+        window = create_root(title, self.parent)
         widget = NexusPlotAndImage(window, config=self.config, horizontal_alignment=True)
         widget.update_data_from_files(self.filename, hdf_map=self.map)
         return widget

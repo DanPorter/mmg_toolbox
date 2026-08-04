@@ -50,17 +50,23 @@ class CanvasTreeview:
     Treeview wrapper comprising a ttk.Treeview inside a canvas with scrollbars
 
         columns = [
+            # name, title, width, reverse, sort_col
             ('#0', "Number", 100, False, None),
             ('file', "Filename", 400, False, None),
         ]
         tv = CanvasTreeview(parent, *columns)
 
-    *Note: the *name* parameter of the first column must be '#0'.
+    ### Notes:
+     - the *name* parameter of the first column must be '#0'.
+     - Columns with *width* 0 will be hidden.
+     - Columns with *reverse* = True will sort in reverse order.
+     - The *sort_col* field can be a *name* of another column which will be used to sort this one.
 
     :param root: parent tk Frame object
     :param columns: list of tuples where each tuple is ('name', 'Title', width, reverse, sort_col)
-    :param width: width of widget, or None to fill and expand
+    :param width: width of widget, or None to fill and expand.
     :param height: heigh of widget, or None to fill and expand
+    :param pack: if True, packs the canvas in the parent frame
     """
     def __init__(self, root: tk.Misc, *columns: TreeViewColumn,
                  width: int | None = None, height: int | None = None,
@@ -75,7 +81,7 @@ class CanvasTreeview:
             canvas.configure(width=width, height=height)
             self.pack_treeview = lambda: canvas.pack()
         else:
-            self.pack_treeview = lambda: canvas.pack(side=tk.TOP, fill=tk.BOTH, expand=tk.YES)
+            self.pack_treeview = lambda: canvas.pack(side='top', fill='both', expand=True)
         if pack:
             self.pack_treeview()
         canvas.grid_propagate(False)
@@ -89,15 +95,15 @@ class CanvasTreeview:
             tree.column(c[0], stretch=False)
 
         var = ttk.Scrollbar(frm, orient="vertical", command=tree.yview)
-        # var.pack(side=tk.RIGHT, fill=tk.Y)
+        # var.pack(side='right', fill='y')
         var.grid(column=1, row=0, sticky='ns')
         tree.configure(yscrollcommand=var.set)
 
         var = ttk.Scrollbar(frm, orient="horizontal", command=tree.xview)
-        # var.pack(side=tk.BOTTOM, fill=tk.X)
+        # var.pack(side='bottom', fill='x')
         var.grid(column=0, row=1, sticky='ew')
         tree.configure(xscrollcommand=var.set)
-        # tree.pack(side=tk.TOP)
+        # tree.pack(side='top')
         tree.grid(column=0, row=0, sticky='nsew')
         # place the frame inside the canvas as a window and make it resize with the canvas
         _canvas_window = canvas.create_window(0, 0, anchor='nw', window=frm)
@@ -179,6 +185,8 @@ class CanvasTreeview:
         header_getter = lambda iid: self.tree.item(iid)['text']
         m.add_command(label="Copy " + header_name, command=copy_fun(header_getter))
         for name, title, width, reverse, sort_col in self.columns:
+            if title == header_name:
+                continue
             getter = lambda iid: self.tree.set(iid, name)
             m.add_command(label="Copy " + title, command=copy_fun(getter))
 

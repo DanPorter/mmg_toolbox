@@ -16,6 +16,8 @@ NX_NOTE = 'NXnote'
 NX_PROC = 'NXprocess'
 NX_TRAN = 'NXtransformations'
 NX_PARAM = 'NXparameters'
+NX_ELEMENT = 'NXelement'
+NX_EDGE = 'NXabsorption_edge'
 
 # Fields
 NX_WL = 'incident_wavelength'
@@ -32,6 +34,8 @@ NX_MODULE_SIZE = 'data_size'
 NX_MODULE_OFFSET = 'module_offset'
 NX_MODULE_FAST = 'fast_pixel_direction'
 NX_MODULE_SLOW = 'slow_pixel_direction'
+NX_START = 'start_time'
+NX_END = 'end_time'
 
 # Attributes
 NX_CLASS = 'NX_class'
@@ -58,8 +62,9 @@ SEARCH_ATTRS = (NX_CLASS, 'local_name')  # DLS attribute 'local_name' helps matc
 # Polarisation field names inside NeXus groups
 # See https://manual.nexusformat.org/classes/base_classes/NXbeam.html#nxbeam
 NX_POLARISATION_FIELDS = [
-    'incident_polarization_stokes',  # NXbeam
     'incident_polarization',  # NXbeam
+    'incident_polarization_stokes',  # NXbeam
     'polarisation',  # DLS specific in NXinsertion_device
     'linear_arbitrary_angle',  # DLS specific in NXinsertion_device
 ]
+NX_POLARISATION_ANGLE = 'linear_arbitrary_angle'

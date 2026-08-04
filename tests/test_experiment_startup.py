@@ -3,22 +3,28 @@ mmg_toolbox tests
 Test experiment folder functions
 """
 
+import sys
 import os
 import subprocess
 
 from . import only_dls_file_system
 from .example_files import FILES_DICT
 
+PY = sys.executable
+
+
 def test_cli_inputs():
-    py_cmd = "python -c \"from mmg_toolbox.scripts.experiment_startup import cli; print(cli())\" "
+    py_cmd = PY + " -c \"from mmg_toolbox.scripts.experiment_startup import cli; print(cli())\" "
 
     def run(cmd):
+        print(f"Current directory: {os.getcwd()}")
         print(f"Running: {py_cmd+cmd}")
         output = subprocess.run(py_cmd+cmd, shell=True, capture_output=True)
         return output.stdout.decode()
 
     command = '.'
     out = run(command)
+    print('Result:', out)
     assert "{'directory': '.', 'beamline': None, 'start_jupyter': None, 'prefix': '', 'quiet': False}" in out
 
     command = '-v mm12345-1 -b i16 -j'
@@ -29,12 +35,13 @@ def test_cli_inputs():
 @only_dls_file_system
 def test_cli_create_notebooks():
     directory = os.path.dirname(FILES_DICT['i10 scan'])
-    command = f"python -c \"from mmg_toolbox.scripts.experiment_startup import cli_create_notebooks; cli_create_notebooks()\" -b i10-1 -q {directory}"
+    command = f"{PY} -c \"from mmg_toolbox.scripts.experiment_startup import cli_create_notebooks; cli_create_notebooks()\" -b i10-1 -q {directory}"
 
+    print(f"Current directory: {os.getcwd()}")
     print(f"Running: {command}")
-    output = subprocess.run(command, shell=True, capture_output=True)
+    output = subprocess.run(command, shell=True, capture_output=True, text=True)
     print('Output:')
-    print(output.stdout.decode())
+    print(output.stdout)
 
     assert os.path.isfile(f"{directory}/example.py")
     assert os.path.isfile(f"{directory}/example.ipynb")

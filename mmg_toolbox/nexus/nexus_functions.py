@@ -47,6 +47,7 @@ def update_args(name: str, obj: h5py.Group, axes: str, signal: str, *args: str |
     # Add NX application definition
     if isinstance(obj, h5py.Group) and nn.NX_DEFINITION in obj:
         names.append(bytes2str(obj[nn.NX_DEFINITION][()]))
+    # TODO: add option for args like 'name:NXclass'
     # Add axes & signal from parent group
     if name == axes:
         names.append(nn.NX_AXES)
@@ -86,6 +87,8 @@ def nx_find(parent: h5py.Group, *field_or_class: str | list[str]) -> h5py.Datase
     """
 
     def recursor(group: h5py.Group, *args: str | list[str]) -> h5py.Dataset | h5py.Group | None:
+        if len(args) == 0:
+            return None
         # return object from path, e.g. obj['group/data']
         if len(args) == 1:
             alt_args = [args[0]] if isinstance(args[0], (str, bytes)) else args[0]
@@ -95,6 +98,10 @@ def nx_find(parent: h5py.Group, *field_or_class: str | list[str]) -> h5py.Datase
         # Get group axes & signal datasets
         axes = bytes2str(group.attrs.get(nn.NX_AXES, ''))
         signal = bytes2str(group.attrs.get(nn.NX_SIGNAL, ''))
+        # search given group
+        args = update_args(group.name, group, axes, signal, *args)
+        if len(args) == 0:
+            return group
 
         items = reorder_group_items(group)  # @default first
         for name, obj in items.items():
@@ -137,6 +144,8 @@ def nx_find_all(parent: h5py.Group, *field_or_class: str | list[str]) -> list[h5
 
     def recursor(group: h5py.Group, *args: str | list[str]) -> list[h5py.Dataset | h5py.Group]:
         found = []
+        if len(args) == 0:
+            return found
         # object from path, e.g. obj['group/data']
         if len(args) == 1:
             alt_args = [args[0]] if isinstance(args[0], (str, bytes)) else args[0]
@@ -147,6 +156,11 @@ def nx_find_all(parent: h5py.Group, *field_or_class: str | list[str]) -> list[h5
         # Get group axes & signal datasets
         axes = bytes2str(group.attrs.get(nn.NX_AXES, ''))
         signal = bytes2str(group.attrs.get(nn.NX_SIGNAL, ''))
+        # search given group
+        args = update_args(group.name, group, axes, signal, *args)
+        if len(args) == 0:
+            found.append(group)
+            return found
 
         for name, obj in group.items():
             new_args = update_args(name, obj, axes, signal, *args)

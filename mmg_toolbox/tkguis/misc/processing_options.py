@@ -3,16 +3,18 @@ Menu options for processing tasks
 """
 import os
 import tkinter as tk
+from tkinter.messagebox import askokcancel
 
 from mmg_toolbox.utils.env_functions import (get_notebook_directory, open_terminal, get_scan_number,
                                              get_processing_directory)
 from mmg_toolbox.scripts.scripts import (generate_script, create_notebook,
                                          SCRIPTS, NOTEBOOKS, R)
-from .config import get_config, C
+from .config import C
 from .functions import check_new_file
 from .jupyter import launch_jupyter_notebook, terminate_notebooks
 from ..apps.multi_scan_analysis import create_multi_scan_analysis
 from ..apps.python_editor import create_python_editor
+from ..xmcd_visualiser import create_xmcd_visualiser
 
 
 def create_script_from_template(root: tk.Misc, template: str = 'example', directory: str | None = None,
@@ -30,7 +32,14 @@ def create_notebook_from_template(root: tk.Misc, template: str = 'example', dire
     script_name = os.path.join(proc_dir, f"{template}.ipynb")
     new_file = check_new_file(root, script_name)
     create_notebook(new_file, template, **replacements)
-    launch_jupyter_notebook('notebook', file=new_file)
+    response = askokcancel(
+        parent=root,
+        title=f"{template} notebook",
+        message=f"Start Jupyter to view notebook?",
+        detail=f"{new_file}",
+    )
+    if response:
+        launch_jupyter_notebook('notebook', file=new_file)
 
 
 def generate_replacement_getter(scanno_getter, title_getter, x_getter = None,
@@ -70,6 +79,12 @@ def generate_processing_menu(parent, config: dict, directory: str | None = None,
         scan_numbers = [get_scan_number(f) for f in filenames]
         create_multi_scan_analysis(parent, config, exp_directory=directory, scan_numbers=scan_numbers)
 
+    def start_xmcd_visualiser():
+        filenames = scan_files_getter()
+        scan_numbers = ', '.join(str(get_scan_number(f)) for f in filenames)
+        create_xmcd_visualiser(parent=parent, config=config, data_directory=directory,
+                               scan_range_str=scan_numbers)
+
     def replacements():
         values = {
             R.exp: directory,
@@ -91,6 +106,7 @@ def generate_processing_menu(parent, config: dict, directory: str | None = None,
     }
     menu = {
         'Multi-Scan': start_multi_scan_plot,
+        'XMCD Visualiser': start_xmcd_visualiser,
         'Script Editor': lambda: create_python_editor(None, parent, config),
         'Open a terminal': lambda: open_terminal(f"cd {directory}"),
         'Start Jupyter (processing)': lambda: launch_jupyter_notebook('notebook', proc_dir),
