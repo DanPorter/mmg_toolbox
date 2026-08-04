@@ -40,8 +40,9 @@ class RoiEditor:
                 self.add_roi(name, cen_i, cen_j, wid_i, wid_j, det_name)
 
         ln = ttk.Frame(window, borderwidth=2)
-        ln.pack(side='top', fill='x')
-        ttk.Button(ln, text='Add ROI', command=self.add_roi).pack()
+        ln.pack(side='top')
+        ttk.Button(ln, text='Add ROI', command=self.add_roi).pack(side='left', padx=2)
+        ttk.Button(ln, text='Copy Code', command=self.copy_roi_code).pack(side='left')
 
         ln = ttk.Frame(window, borderwidth=6)
         ln.pack(side='bottom', fill='x')
@@ -60,6 +61,11 @@ class RoiEditor:
         )
         def copy_roi():
             self.add_roi(*(var[1].get() for var in tkvars))
+        def copy_code():
+            vals = [var[1].get() for var in tkvars]
+            code = "exp.add_roi('{}','{}','{}',{},{},'{}')".format(*vals)
+            self.root.clipboard_clear()
+            self.root.clipboard_append(code)
 
         self.roi_values.append(tkvars)
         ln = ttk.Frame(self.roi_table, borderwidth=2)
@@ -68,8 +74,11 @@ class RoiEditor:
         for label, tkvar, width in tkvars:
             ttk.Label(ln, text=label).pack(side='left', padx=2)
             ttk.Entry(ln, textvariable=tkvar, width=width).pack(side='left', padx=2)
-        ttk.Button(ln, text='X', command=lambda index=len(self.roi_lines)-1: self.remove_roi(index)).pack(side='left', padx=2)
-        ttk.Button(ln, text='Copy', command=copy_roi).pack(side='left', padx=2)
+        ttk.Button(ln, text='X', width=2,
+                   command=lambda index=len(self.roi_lines)-1: self.remove_roi(index)
+                   ).pack(side='left', padx=2)
+        ttk.Button(ln, text='D', width=2, command=copy_roi).pack(side='left', padx=2)
+        ttk.Button(ln, text='Copy Code', command=copy_code).pack(side='left', padx=2)
 
     def remove_roi(self, index: int):
         check, frame = self.roi_lines[index]
@@ -86,6 +95,17 @@ class RoiEditor:
 
     def update_config(self):
         self.config[C.roi] = self.create_config_rois()
+
+    def copy_roi_code(self):
+        folder = self.config.get(C.current_dir)
+        beamline = self.config.get(C.beamline)
+        rois = self.create_config_rois()
+
+        code = f"exp = Experiment('{folder}', instrument='{beamline}')\n"
+        for roi in rois:
+            code += "exp.add_roi('{}','{}','{}',{},{},'{}')\n".format(*roi)
+        self.root.clipboard_clear()
+        self.root.clipboard_append(code)
 
     def close(self):
         self.update_config()
