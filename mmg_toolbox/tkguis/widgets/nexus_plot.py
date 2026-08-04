@@ -12,6 +12,7 @@ from hdfmap.eval_functions import generate_identifier
 
 from mmg_toolbox.utils.env_functions import get_scan_number
 from mmg_toolbox.fitting import multipeakfit, FitResults, find_peaks_str
+from ..misc.styles import create_hover
 from ..misc.logging import create_logger
 from ..misc.config import get_config, C
 from .simple_plot import SimplePlot
@@ -40,10 +41,14 @@ class NexusDefaultPlot(SimplePlot):
         self._fit_result: FitResults | None = None
 
         self.axes_x = tk.StringVar(self.root, 'axes')
+        self.ini_axes_y = tk.StringVar(self.root, 'signal')
         self.axes_y = tk.StringVar(self.root, 'signal')
         self.normalise = tk.BooleanVar(self.root, False)
         self.fix_x = tk.BooleanVar(self.root, False)
         self.fix_y = tk.BooleanVar(self.root, False)
+        self.diff = tk.BooleanVar(self.root, False)
+        self.inverse = tk.BooleanVar(self.root, False)
+        self.log = tk.BooleanVar(self.root, False)
         self.fit_model = tk.StringVar(self.root, 'Gaussian')
         self.max_peaks = tk.IntVar(self.root, 1)
         self.do_fit = tk.BooleanVar(self.root, False)
@@ -112,6 +117,7 @@ class NexusDefaultPlot(SimplePlot):
         var.bind('<KP_Enter>', self.update_axis_choice)
         var = ttk.Checkbutton(line, text='Fix', variable=self.fix_x)
         var.pack(side='left')
+        ttk.Button(line, text='Options', command=self.plot_options).pack(side='left', padx=2)
 
         line = ttk.Frame(frm)
         line.pack(side='top', expand=False, fill='x')
@@ -128,8 +134,8 @@ class NexusDefaultPlot(SimplePlot):
         var.bind('<KP_Enter>', self.update_axis_choice)
         var = ttk.Checkbutton(line, text='Fix', variable=self.fix_y)
         var.pack(side='left')
-        var = ttk.Checkbutton(line, text='Normalise', variable=self.normalise, command=self.normalise_signal)
-        var.pack(side='left')
+        # var = ttk.Checkbutton(line, text='Normalise', variable=self.normalise, command=self.normalise_signal)
+        # var.pack(side='left')
 
         # Fitting
         frm = ttk.Frame(section, relief='ridge', borderwidth=2)
@@ -164,6 +170,25 @@ class NexusDefaultPlot(SimplePlot):
         ttk.Label(frm, textvariable=self.error_message, style='error.TLabel').pack()
         return combo_x, combo_y
 
+    def plot_options(self):
+        """A hovering frame with options"""
+        window, fun_close = create_hover(self.root, top_left=(0, 0.1))
+
+        frm = ttk.LabelFrame(window, text='Options', relief='ridge')
+        frm.pack(expand=False, pady=2, padx=5)
+        line = ttk.Frame(frm)
+        line.pack(side='top', pady=2)
+        p = dict(side='top', fill='x', padx=6)
+        ttk.Checkbutton(line, text='Normalise', variable=self.normalise, command=self.update_signal).pack(**p)
+        ttk.Checkbutton(line, text='Log', variable=self.log, command=self.update_signal).pack(**p)
+        ttk.Checkbutton(line, text='Diff', variable=self.diff, command=self.update_signal).pack(**p)
+        ttk.Checkbutton(line, text='Inverse', variable=self.inverse, command=self.update_signal).pack(**p)
+
+        frm = ttk.Frame(window)
+        frm.pack(side='top', fill='x')
+        var = ttk.Button(frm, text='Close', command=fun_close)
+        var.pack(fill='x')
+
     def update_data_from_files(self, *filenames: str, hdf_map: hdfmap.NexusMap | None = None):
         if not filenames:
             return
@@ -182,7 +207,8 @@ class NexusDefaultPlot(SimplePlot):
         if not self.fix_x.get():
             self.axes_x.set(next(iter(axes), f'arange({self.map.scannables_length()})'))
         if not self.fix_y.get():
-            self.axes_y.set(next(iter(signals), f'zeros({self.map.scannables_length()})'))
+            self.ini_axes_y.set(next(iter(signals), f'zeros({self.map.scannables_length()})'))
+            self.update_signal()
         self.update_axis_choice()
         title = self.map.format_hdf(self.map.load_hdf(), self.config.get(C.scan_title, 'title'))
         self.update_labels(title=title)
@@ -256,6 +282,20 @@ class NexusDefaultPlot(SimplePlot):
             self.axes_y.set(signal + norm_by)
         else:
             self.axes_y.set(signal)
+        self.update_axis_choice()
+
+    def update_signal(self, event=None):
+        signal = self.ini_axes_y.get()
+        norm_by = self.config.get(C.normalise_factor, '')
+        if self.normalise.get():
+            signal = f"{signal}{norm_by}"
+        if self.log.get():
+            signal = f"log10({signal})"
+        if self.diff.get():
+            signal = f"gradient({signal})"
+        if self.inverse.get():
+            signal = f"1/{signal}"
+        self.axes_y.set(signal)
         self.update_axis_choice()
 
     def update_axis_choice(self, event=None):
