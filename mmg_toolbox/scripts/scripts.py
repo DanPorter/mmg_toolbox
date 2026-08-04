@@ -2,6 +2,10 @@
 Script & Notebook templates
 """
 
+#TODO: move templates into template folder
+#TODO: update locations for template folder
+#TODO: update package information to include template folder
+
 import os
 import re
 import datetime
@@ -30,7 +34,8 @@ SCRIPTS = {
     'example': ('example_script.py', 'a simple example script'),
     'plot multi-line': ('experiment_multiline.py', 'create a multi-line plot'),
     'peak fitting': ('experiment_fitting.py', 'fit peaks and plot the results'),
-    'spectra': ('spectra_script.py', 'normalise spectra and subtract polarisations')
+    'spectra': ('spectra_script.py', 'normalise spectra and subtract polarisations'),
+    'qbpm': ('qbpm_script.py', 'determine PhasePlate offset using QBPM detector')
 }
 
 NOTEBOOKS = {

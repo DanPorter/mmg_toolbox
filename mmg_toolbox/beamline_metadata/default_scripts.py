@@ -34,7 +34,7 @@ BEAMLINE_SCRIPTS = {
         'notebooks': ['xmcd']
     },
     'i16': {
-        'scripts': ['peak fitting', 'plot multi-line'],
+        'scripts': ['peak fitting', 'plot multi-line', 'qbpm'],
         'notebooks': ['msmapper', 'i16_vortex']
     },
     'i21': {
