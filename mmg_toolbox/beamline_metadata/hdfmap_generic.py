@@ -2,6 +2,8 @@
 Generic metadata from NeXus files for use by HdfMap
 """
 
+ROI_SUFFIXES = ['_total', '_max', '_min', '_mean', '_rmbkg', '_box', '_bkg_box']
+
 class HdfMapNexus:
     """HdfMap Eval commands for any nexus file"""
     instrument = 'NXinstrument_name?("beamline")'

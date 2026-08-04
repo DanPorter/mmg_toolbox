@@ -13,7 +13,7 @@ from mmg_toolbox.xas import (
     Spectra, SpectraContainer, SpectraContainerSubtraction, SpectraContainerAverage,
     load_xas_scans, average_polarised_scans, polarised_pairs, pair_scans, average_scans
 )
-from mmg_toolbox.xas.nxxas_loader import is_nxxas, is_processed
+from mmg_toolbox.xas.nxxas_loader import is_nxxas, is_processed, is_i16vortex, is_subtraction
 from . import only_dls_file_system
 from .example_files import FILES_DICT
 
@@ -46,6 +46,8 @@ def test_create_spectra():
     spectra7 = spectra1.remove_background('flat')
     assert spectra7.signal.max() == approx(0)
     assert spectra7.process_label == 'flat'
+    spectra8 = spectra1.shift(3)
+    assert spectra8.energy.max() == approx(energy[-1] + 3)
 
 
 def test_spectra_container():
@@ -157,6 +159,7 @@ def test_average_polarised_scans():
 
     pol1, pol2 = average_polarised_scans(*all_spectra)
     xmcd = pol1 - pol2
+    xmcd = xmcd
     assert xmcd.spectra['tey'].signal.max() == approx(0.145, abs=0.001)
     assert 'xmcd' == xmcd.name
     assert 'xmcd' in xmcd.analysis_steps_str()
@@ -168,11 +171,22 @@ def test_average_polarised_scans():
     report = xmcd.sum_rules_report()
     assert ' n_holes = 4, energy split = None eV\nL = -0.088 μB\nS = 0.008 μB' in report
 
+    # Test align
+    pol1_a = pol1.align_spectra()
+    pol2_a = pol2.align_spectra()
+    xmcd_a = pol1_a - pol2_a
+    assert pol1_a.spectra['tey'].parents[0].process_label == 'shift'
+    assert pol1_a.spectra['tey'].parents[0].parameters.get('ev', 0) == approx(-0.02, abs=0.001)
+    orbital, spin = xmcd_a.calculate_sum_rules()
+    assert orbital == approx(-0.088, abs=0.002)
+    assert spin == approx(0.008, abs=0.002)
+
     # Write nexus
     xmcd.write_nexus('test_xmcd.nxs')
     assert os.path.isfile('test_xmcd.nxs')
     assert is_processed('test_xmcd.nxs')
 
+    # Read nexus
     with h5py.File('test_xmcd.nxs', 'r') as hdf:
         assert isinstance(hdf['/xmcd/tey/absorbed_beam'], h5py.Dataset)
     check, = load_xas_scans('test_xmcd.nxs')
@@ -205,6 +219,7 @@ def test_find_pairs():
     scan1, scan2 = pairs[0]
     assert scan1.metadata.pol == scan2.metadata.pol
     assert scan1.metadata.mag_field == approx(-scan2.metadata.mag_field)
+
 
 def test_write_outputs():
     energy = np.arange(700, 730, 0.1)
@@ -260,6 +275,7 @@ def test_write_average_outputs():
 
     os.remove('test_av_xas.nxs')
 
+
 def test_write_subtracted_outputs():
     energy = np.arange(700, 730, 0.1)
     signal = 3 * np.ones(len(energy))
@@ -275,6 +291,7 @@ def test_write_subtracted_outputs():
     subtracted = container1 - container2
     subtracted.write_nexus('test_subtracted.nxs')
     assert os.path.isfile('test_subtracted.nxs')
+    assert is_subtraction('test_subtracted.nxs')
 
     with h5py.File('test_subtracted.nxs', 'r') as hdf:
         assert isinstance(hdf['/xmcd/tey/absorbed_beam'], h5py.Dataset)
@@ -299,7 +316,35 @@ def test_write_subtracted_outputs():
 @only_dls_file_system
 def test_i16_vortex_spectra():
     # single energy detector spectrum
+    filename = FILES_DICT['i16 xsp3 x scan']
+    assert is_i16vortex(filename)
+    spectra, = load_xas_scans(filename)
     # spectra, = load_xas_scans('/dls/i16/data/2026/cm44164-9/1145818.nxs')
-    spectra, = load_xas_scans('/dls/i16/data/2026/cm44164-9/1145910.nxs')
+    # spectra, = load_xas_scans('/dls/i16/data/2026/cm44164-9/1145910.nxs')
     assert 'xes' in spectra.spectra
     assert len(spectra.spectra['xes'].signal) == 4096
+
+    # energy scan
+    f1 = FILES_DICT['i16 xsp3 energy scan lh']
+    f2 = FILES_DICT['i16 xsp3 energy scan lv']
+    assert is_i16vortex(f1) and is_i16vortex(f2)
+    lh, lv = load_xas_scans(f1, f2)
+    assert 'pfy' in lh.spectra and 'tfy' in lh.spectra
+    assert lh.metadata.pol == 'lh' and lv.metadata.pol == 'lv'
+    xmld = lh - lv
+    assert xmld.calculate_signal_ratio() == approx({'pfy': 0.517388, 'tfy': 0.416337}, 0.001)
+
+
+@only_dls_file_system
+def test_i16_vortex_spectra_with_roi():
+    # energy scan
+    f1 = FILES_DICT['i16 xsp3 energy scan lh']
+    scan = data_file_reader(f1)
+    scan.map.add_roi('new_window', 1, 915, 2, 100, 'xsp3')
+    assert 'new_window_total' in scan.rois()
+    spectra = scan.xas_spectra()
+    assert 'new_window' in spectra.spectra
+
+    spectra2 = scan.xas_spectra(mode='Window_2')
+    assert list(spectra2.spectra.keys()) == ['Window_2']
+    assert spectra2.metadata.default_mode == 'Window_2'

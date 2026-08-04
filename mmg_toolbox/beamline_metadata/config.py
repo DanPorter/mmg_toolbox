@@ -32,7 +32,7 @@ META_LIST = {
 }
 
 REPLACE_NAMES = {
-    # NEW_NAME: EXPRESSION
+    # NEW_NAME: EXPRESSION (cannot include NEW_NAME)  #TODO: fix this in HdfMap
     '_t': '(count_time|counttime|t?(1.0))',
     '_cmd': DEFAULT_SCAN_DESCRIPTION.strip('{}'),
 }
