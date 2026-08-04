@@ -22,15 +22,15 @@ class RoiEditor:
         else:
             self.config = config
 
-        window = ttk.Frame(root, borderwidth=2, relief=tk.RIDGE)
-        window.pack(expand=tk.NO, pady=2, padx=5)
+        window = ttk.Frame(root, borderwidth=2, relief='ridge')
+        window.pack(expand=False, pady=2, padx=5)
 
-        self.roi_table = ttk.Frame(window, borderwidth=20, relief=tk.RAISED)
-        self.roi_table.pack(side=tk.TOP, fill=tk.BOTH)
+        self.roi_table = ttk.Frame(window, borderwidth=20, relief='raised')
+        self.roi_table.pack(side='top', fill='both')
 
         frm = ttk.Frame(self.roi_table)
-        frm.pack(side=tk.TOP, expand=tk.YES, fill=tk.BOTH)
-        ttk.Label(frm, text='Image ROIs', style="title.TLabel").pack(expand=tk.YES, fill=tk.X, padx=10, pady=10)
+        frm.pack(side='top', expand=True, fill='both')
+        ttk.Label(frm, text='Image ROIs', style="title.TLabel").pack(expand=True, fill='x', padx=10, pady=10)
 
         self.roi_values: list[tuple] = []
         self.roi_lines: list[tuple[bool, ttk.Frame]] = []
@@ -40,12 +40,12 @@ class RoiEditor:
                 self.add_roi(name, cen_i, cen_j, wid_i, wid_j, det_name)
 
         ln = ttk.Frame(window, borderwidth=2)
-        ln.pack(side=tk.TOP, fill=tk.X)
+        ln.pack(side='top', fill='x')
         ttk.Button(ln, text='Add ROI', command=self.add_roi).pack()
 
         ln = ttk.Frame(window, borderwidth=6)
-        ln.pack(side=tk.BOTTOM, fill=tk.X)
-        ttk.Button(ln, text='Close', command=self.close).pack(fill=tk.X, expand=tk.YES)
+        ln.pack(side='bottom', fill='x')
+        ttk.Button(ln, text='Close', command=self.close).pack(fill='x', expand=True)
 
     def add_roi(self, name: str = '', cen_i: int | str = '', cen_j: int | str = '',
                 wid_i: int = 30, wid_j: int = 30, det_name: str = 'IMAGE'):
@@ -63,13 +63,13 @@ class RoiEditor:
 
         self.roi_values.append(tkvars)
         ln = ttk.Frame(self.roi_table, borderwidth=2)
-        ln.pack(side=tk.TOP, fill=tk.X)
+        ln.pack(side='top', fill='x')
         self.roi_lines.append((True, ln))
         for label, tkvar, width in tkvars:
-            ttk.Label(ln, text=label).pack(side=tk.LEFT, padx=2)
-            ttk.Entry(ln, textvariable=tkvar, width=width).pack(side=tk.LEFT, padx=2)
-        ttk.Button(ln, text='X', command=lambda index=len(self.roi_lines)-1: self.remove_roi(index)).pack(side=tk.LEFT, padx=2)
-        ttk.Button(ln, text='Copy', command=copy_roi).pack(side=tk.LEFT, padx=2)
+            ttk.Label(ln, text=label).pack(side='left', padx=2)
+            ttk.Entry(ln, textvariable=tkvar, width=width).pack(side='left', padx=2)
+        ttk.Button(ln, text='X', command=lambda index=len(self.roi_lines)-1: self.remove_roi(index)).pack(side='left', padx=2)
+        ttk.Button(ln, text='Copy', command=copy_roi).pack(side='left', padx=2)
 
     def remove_roi(self, index: int):
         check, frame = self.roi_lines[index]

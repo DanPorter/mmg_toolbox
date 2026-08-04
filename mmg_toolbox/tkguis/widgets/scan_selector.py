@@ -357,24 +357,24 @@ class FolderScanSelector(_ScanSelector):
 
     def ini_folderpath(self):
         frm = ttk.Frame(self.root)
-        frm.pack(side=tk.TOP, fill=tk.X)
+        frm.pack(side='top', fill='x')
 
-        ttk.Button(frm, text='Add Folder', command=self.browse_folder).pack(side=tk.LEFT)
-        ttk.Button(frm, text='Search', command=self.search_options).pack(side=tk.RIGHT)
+        ttk.Button(frm, text='Add Folder', command=self.browse_folder).pack(side='left')
+        ttk.Button(frm, text='Search', command=self.search_options).pack(side='right')
 
     def ini_file_select(self):
         frm = ttk.Frame(self.root)
-        frm.pack(side=tk.TOP, fill=tk.X)
+        frm.pack(side='top', fill='x')
 
         var = ttk.Entry(frm, textvariable=self.select_box, width=12)
-        var.pack(side=tk.LEFT)
+        var.pack(side='left')
         var.bind("<Return>", self.select_from_box)
         var.bind('<KP_Enter>', self.select_from_box)
-        ttk.Button(frm, text='-', command=self.select_box_decrease, width=2).pack(side=tk.LEFT)
-        ttk.Button(frm, text='+', command=self.select_box_increase, width=2).pack(side=tk.LEFT)
+        ttk.Button(frm, text='-', command=self.select_box_decrease, width=2).pack(side='left')
+        ttk.Button(frm, text='+', command=self.select_box_increase, width=2).pack(side='left')
 
-        ttk.Button(frm, text='Search', command=self.search_options).pack(side=tk.RIGHT)
-        ttk.Button(frm, text='Add Folder', command=self.browse_folder).pack(side=tk.RIGHT)
+        ttk.Button(frm, text='Search', command=self.search_options).pack(side='right')
+        ttk.Button(frm, text='Add Folder', command=self.browse_folder).pack(side='right')
 
     "======================================================"
     "=============== populate functions ==================="
@@ -464,7 +464,7 @@ class ScanViewer(_ScanSelector):
 
         self.tree.bind("<Button-3>", self.right_click_menu())
 
-        ttk.Button(self.root, text=button_name, command=self.select_scans).pack(side=tk.TOP, fill=tk.X, expand=tk.YES)
+        ttk.Button(self.root, text=button_name, command=self.select_scans).pack(side='top', fill='x', expand=True)
 
         self.populate_files("", *scan_files)
 
