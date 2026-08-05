@@ -34,33 +34,34 @@ classifiers = [
 [project.optional-dependencies]
 # minimal install
 base = [
-    "numpy",
-    "h5py",
-    "hdf5plugin",
-    "hdfmap>=1.1.0",
-    "matplotlib",
-    "imageio",
-    "lmfit",
+  "numpy",
+  "h5py",
+  "hdf5plugin",
+  "hdfmap>=1.1.0",
+  "matplotlib",
+  "imageio",
+  "lmfit",
+  "scipy",
 ]
+powder = [
+  "mmg_toolbox[base]",
+  "pyFAI",
+  "fabio",
+]
+
 # full install with additional packages
 full = [
-    "numpy",
-    "h5py",
-    "hdf5plugin",
-    "hdfmap>=1.1.0",
-    "matplotlib",
-    "imageio",
-    "scipy",
-    "lmfit",
-    "diffcalc-core",
-    "ipython",
-    "jupyter",
-    "nbconvert",
-    "nbformat",
-    "nexpy",
-    "ipywidgets",
-    "kaleido",
-    "plotly",
+  "mmg_toolbox[powder]",
+  "mmg_toolbox[base]",
+  "diffcalc-core",
+  "ipython",
+  "jupyter",
+  "nbconvert",
+  "nbformat",
+  "nexpy",
+  "ipywidgets",
+  "kaleido",
+  "plotly",
 ]
 
 [tool.setuptools]
@@ -70,6 +71,7 @@ packages = [
     'mmg_toolbox.data',
     'mmg_toolbox.scripts',
     'mmg_toolbox.diffraction',
+    'mmg_toolbox.diffraction.powder',
     'mmg_toolbox.plotting',
     'mmg_toolbox.nexus',
     'mmg_toolbox.utils',
