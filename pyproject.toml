@@ -34,31 +34,31 @@ classifiers = [
 [project.optional-dependencies]
 # minimal install
 base = [
-    "numpy",
-    "h5py",
-    "hdf5plugin",
-    "hdfmap>=1.1.0",
-    "matplotlib",
-    "imageio",
-    "lmfit",
+  "numpy",
+  "h5py",
+  "hdf5plugin",
+  "hdfmap>=1.1.0",
+  "matplotlib",
+  "imageio",
+  "lmfit",
+  "scipy",
 ]
 powder = [
   "mmg_toolbox[base]",
   "pyFAI",
   "fabio",
-  ]
+]
 
 # full install with additional packages
 full = [
   "mmg_toolbox[powder]",
   "mmg_toolbox[base]",
-  "scipy",
   "diffcalc-core",
   "ipython",
   "jupyter",
   "nbconvert",
   "nbformat",
-  "nexpy"
+  "nexpy",
   "ipywidgets",
   "kaleido",
   "plotly",
