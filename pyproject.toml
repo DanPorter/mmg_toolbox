@@ -72,6 +72,7 @@ packages = [
     'mmg_toolbox.scripts',
     'mmg_toolbox.diffraction',
     'mmg_toolbox.diffraction.powder',
+    'mmg_toolbox.misc',
     'mmg_toolbox.plotting',
     'mmg_toolbox.nexus',
     'mmg_toolbox.utils',
