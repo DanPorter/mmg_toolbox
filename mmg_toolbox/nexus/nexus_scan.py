@@ -103,7 +103,7 @@ class NexusScan(NexusLoader):
         alternate_data = (
             "Alternate Names:\n  Name: Expression" +
             "\n".join(
-                f"  {name}: '{expr}'" for name, expr in self.map._alternate_names.items()
+                f"  {name}: '{expr}'" for name, expr in self.map.alternate_names.items()
             ) +
             "\n"
         ) if alternate else ""
@@ -123,7 +123,7 @@ class NexusScan(NexusLoader):
         # search for ROIs in HdfMap expressions
         alternate_name_rois = {
             next((name.removesuffix(sfx) for sfx in ROI_SUFFIXES if name.endswith(sfx)), name)
-            for name, expression in self.map._alternate_names.items()
+            for name, expression in self.map.alternate_names.items()
             if expression.startswith('d_')
         }
         return [roi + append for roi in alternate_name_rois]
@@ -241,10 +241,10 @@ class NexusScan(NexusLoader):
             else:
                 image = self.map.get_image(hdf, index)
 
-            if issubclass(type(image), str):
+            if issubclass(type(image), str) or np.issubdtype(image.dtype, str):
                 # TIFF image, NXdetector/image_data -> array('file.tif')
                 file_directory = os.path.dirname(self.filename)
-                image_filename = os.path.join(file_directory, image)
+                image_filename = os.path.join(file_directory, str(image))
                 if not os.path.isfile(image_filename):
                     raise FileNotFoundError(f"File not found: {image_filename}")
                 image = read_tiff(image_filename)

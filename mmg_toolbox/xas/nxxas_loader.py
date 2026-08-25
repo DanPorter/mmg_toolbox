@@ -481,14 +481,14 @@ def load_from_i16_vortex(filename: str, sample_name: str | None = None,
             # Find ROIs
             alternate_name_rois = {
                 next((name.removesuffix(sfx) for sfx in ROI_SUFFIXES if name.endswith(sfx)), name)
-                for name, expression in m._alternate_names.items()
+                for name, expression in m.alternate_names.items()
                 if expression.startswith('d_xsp3')
             }
             for roi in alternate_name_rois:
                 mode_spec[roi] = m.eval(hdf, roi + '_total')
             # Add other input options
             for _mode in mode:
-                if _mode in m.scannables or _mode in m._alternate_names:
+                if _mode in m.scannables or _mode in m.alternate_names:
                     _signal = m.eval(hdf, _mode)
                     if np.size(_signal) == np.size(energy):
                         mode_spec[_mode] = _signal

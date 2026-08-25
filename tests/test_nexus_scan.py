@@ -29,7 +29,7 @@ def test_nexus_scan():
     assert name == 'roi2_sum / count_time / Transmission'
     assert values.shape == (61, )
     values, name = scan.get_plot_axis('IMAGE / Transmission')
-    assert name == 'data / Transmission'
+    assert name == 'pil3_100k / Transmission'
     assert values.shape == (61, )
 
     scannables = scan.get_scannables()
