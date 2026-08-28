@@ -348,3 +348,10 @@ def test_i16_vortex_spectra_with_roi():
     spectra2 = scan.xas_spectra(mode='Window_2')
     assert list(spectra2.spectra.keys()) == ['Window_2']
     assert spectra2.metadata.default_mode == 'Window_2'
+
+@only_dls_file_system
+def test_i06_result():
+    inpath = "/dls/science/groups/das/ExampleData/hdfmap_tests/i06/i06-1-372210.nxs"
+    scan = data_file_reader(inpath)
+    xas_scan = scan.xas_spectra(dls_loader=True)
+    assert True

@@ -7,7 +7,6 @@ NexusDataHolder - Loads scan data and meta data into attributes
 
 import os
 import datetime
-import re
 import json
 
 import h5py
@@ -93,23 +92,10 @@ class NexusScan(NexusLoader):
              metadata=False, scannables=True, image_data=True,
              local=False, alternate=True) -> str:
         """Return string of namespace information"""
-        local_data = (
-                "Local Data:\n" +
-                "\n".join(
-                    f"  {name}: {value}" for name, value in self._local_data.items()
-                ) +
-                "\n"
-        ) if local else ""
-        alternate_data = (
-            "Alternate Names:\n  Name: Expression" +
-            "\n".join(
-                f"  {name}: '{expr}'" for name, expr in self.map.alternate_names.items()
-            ) +
-            "\n"
-        ) if alternate else ""
         map_data = self.map.info_names(arrays=arrays, values=values, combined=combined,
-                                       metadata=metadata, scannables=scannables, image_data=image_data)
-        return local_data + alternate_data + map_data
+                                       metadata=metadata, scannables=scannables,
+                                       image_data=image_data, local=local, alternate=alternate)
+        return map_data
 
     def rois(self, append: str = '_total') -> list[str]:
         """
@@ -308,30 +294,7 @@ class NexusScan(NexusLoader):
 
     def replace_default_names(self, expression: str) -> str:
         """Replace 'axes', 'signal' and 'IMAGE' in expression with correct values"""
-        axes_names, signal_names = self.map.nexus_default_names()
-        detector_names = list(self.map.image_data)
-        # Replace axes instances
-        expression = re.sub(
-            r'axes(\d*)',
-            lambda m: list(axes_names)[int(m.group(1) or 0)],
-            expression
-        )
-        # Replace signal instances
-        expression = re.sub(
-            r'signal(\d*)',
-            lambda m: list(signal_names)[int(m.group(1) or 0)],
-            expression
-        )
-        # Replace IMAGE instances
-        expression = re.sub(
-            r'IMAGE(\d*)',
-            lambda m: list(detector_names)[int(m.group(1) or 0)],
-            expression
-        )
-        # Replace other HdfMap names
-        replace_names = {name: self.map.generate_ids(name)[0] for name in self.map if name in expression}
-        expression = multiple_replace(replace_names, expression)
-        return expression
+        return self.map.merge_default_names(expression)
 
     def _get_plot_axis(self, hdf: h5py.File | h5py.Group, axis_name: str,
                        reduce_shape: bool = True, flatten: bool = False) -> tuple[np.ndarray, str]:
@@ -519,14 +482,20 @@ class NexusScan(NexusLoader):
                 description='NexusScan configuration',
                 data=self.config,
             )
+            nw.add_nxnote(
+                root=entry,
+                name='hdfmap',
+                description='HdfMap json blob',
+                data=self.map.generate_json_str()
+            )
 
     def load_local_data(self):
         """If the scan file contains previously saved NexusScan information, the local data and config will be loaded."""
 
         with self.load_hdf() as hdf:
-            orig_filename, local_data, config = _load_local_data(hdf)
+            orig_filename, hdf_map, local_data, config = _load_local_data(hdf)
 
-        self.__init__(orig_filename, None, config=config)
+        self.__init__(orig_filename, hdf_map, config=config)
         self.add_local(**local_data)
 
     def save_nxdata(self, root: h5py.Group, name: str = 'data', x_axis: str | None = None, *y_axis: str | None,
@@ -586,7 +555,7 @@ class NexusDataHolder(DataHolder, NexusScan):
     map: NexusMap
     metadata: DataHolder
 
-    def __init__(self, filename: str | None, hdf_map: NexusMap | None = None, flatten_scannables: bool = True,
+    def __init__(self, filename: str, hdf_map: NexusMap | None = None, flatten_scannables: bool = True,
                  config: dict | None = None):
         NexusScan.__init__(self, filename, hdf_map, config)
 
@@ -600,7 +569,7 @@ class NexusDataHolder(DataHolder, NexusScan):
         return f"NexusDataHolder('{self.filename}')"
 
 
-def _load_local_data(hdf: h5py.File) -> tuple[str | None, dict, dict]:
+def _load_local_data(hdf: h5py.File) -> tuple[str, NexusMap, dict, dict]:
     """Load saved data from Nexus file saved by NexusScan.save"""
     def h5value(ds):
         return ds.asstr()[()] if h5py.check_string_dtype(ds.dtype) else ds[()]
@@ -608,11 +577,13 @@ def _load_local_data(hdf: h5py.File) -> tuple[str | None, dict, dict]:
     nexus_scan_entry = hdf.get('NexusScan', None)
     if nexus_scan_entry is None:
         print(f"File {hdf.filename} does not contain a NexusScan entry")
-        return None, {}, {}
+        return "", NexusMap(), {}, {}
     orig_filename = str(h5value(nexus_scan_entry.get('filename')))
+    hdfmap_json = nexus_scan_entry['hdfmap/data'].asstr()[()]
+    hdf_map = NexusMap(hdfmap_json)
     local_data = {name: h5value(ds) for name, ds in nexus_scan_entry['local_data/parameters'].items()}
     config = json.loads(h5value(nexus_scan_entry.get('config/data')))
-    return orig_filename, local_data, config
+    return orig_filename, hdf_map, local_data, config
 
 
 def load_nexus_scan(filename: str) -> NexusScan:
@@ -620,14 +591,13 @@ def load_nexus_scan(filename: str) -> NexusScan:
     with load_hdf(filename) as hdf:
         if 'NexusScan' not in hdf:
             print(f"File {filename} does not contain a NexusScan entry, loading NexusScan as normal")
-            hdf_map = NexusMap()  # save re-opening the file
-            hdf_map.populate(hdf)
+            hdf_map = NexusMap(hdf)  # save re-opening the file
             return NexusScan(filename, hdf_map)
 
-        orig_filename, local_data, config = _load_local_data(hdf)
+        orig_filename, hdf_map, local_data, config = _load_local_data(hdf)
 
     # create NexusScan
-    nexus_scan = NexusScan(orig_filename, config=config)
+    nexus_scan = NexusScan(orig_filename, hdf_map, config=config)
     nexus_scan.add_local(**local_data)
     return nexus_scan
 

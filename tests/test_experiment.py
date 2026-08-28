@@ -17,7 +17,7 @@ def test_file_loader():
     assert isinstance(scan, NexusDataHolder)
     assert scan.beamline == 'i16'
     # Check local data injection
-    assert scan('beamline, scan_number, filename, _cmd') == ('i16', 1109527, '1109527.nxs', 'flyscancn eta_fly 0.005 61 pil3_100k 0.1 0.5 roi1 roi2')
+    assert scan('beamline, scan_number, filename, cmd') == ('i16', 1109527, '1109527.nxs', 'flyscancn eta_fly 0.005 61 pil3_100k 0.1 0.5 roi1 roi2')
     # Check config roi
     assert scan('pilroi1_total').shape == (61, )
     scan_range = range(1032120, 1032130)
@@ -31,7 +31,7 @@ def test_find_scans():
     scan_nos = exp.get_nearby_scan_numbers(1032337)
     assert len(scan_nos) == 20
     assert scan_nos[-1] - scan_nos[0] == 42
-    scans = exp.find_scans(*scan_nos, **{'_cmd': 'scan stokes_fly'})
+    scans = exp.find_scans(*scan_nos, **{'cmd': 'scan stokes_fly'})
     assert len(scans) == 4
 
 
@@ -80,6 +80,29 @@ def test_plots():
 def test_2d_mesh():
     exp = Experiment('/dls/science/groups/das/ExampleData/i16/2dscans_2026/', instrument='i16')
     pass
+
+
+def test_i16_vortex_multiplot():
+    exp = Experiment('/dls/i16/data/2026/mm43750-1', instrument='i16')
+    exp.add_roi('xsp3_roi1', '1', '915', 2, 126, 'xsp3')
+    exp.add_roi('xsp3_roi2', '1', '755', 2, 116, 'xsp3')
+    exp.add_roi('xsp3_roi3', '1', '1104', 2, 135, 'xsp3')
+
+    ax = exp.plot.multi_lines(1146572, 1146573, xaxis='axes', yaxis='signal')
+    assert ax
+    ax = exp.plot.multi_lines(1146572, 1146573, xaxis='axes', yaxis='(xsp3_roi3_total - min(xsp3_roi3_total)) / ic1monitor')
+    assert ax
+
+    scan1, scan2 = exp.scans(1146572, 1146573)
+
+    x, x_label = scan1.get_plot_axis('axes')
+    assert x_label == 'energy2'
+    assert x.shape == (121, )
+
+    data = scan1.get_plot_data('axes', 'xsp3_roi3_total')
+    assert data['x'].shape == (121, )
+
+
 
 
 

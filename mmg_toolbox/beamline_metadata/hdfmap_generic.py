@@ -27,7 +27,7 @@ class HdfMapMMGMetadata(HdfMapNexus):
     energy = '(fastEnergy|pgm_energy|energye|energyh|incident_energy|energy)'
     pol = 'polarisation?("lh")'
     pol_angle = 'linear_arbitrary_angle?(0.0)'
-    count_time = 'count_time?(1.)'  # TODO: check this
+    count_time = 'count_time'
 
 
 class HdfMapXASMetadata(HdfMapMMGMetadata):
