@@ -54,6 +54,7 @@ def test_nexus_scan():
     assert (times[-1] - times[0]).total_seconds() == approx(6.0)
 
 
+@only_dls_file_system
 def test_i06_data():
     f = DIR + '/i06/i06-384074.nxs'
     scan = NexusScan(f)

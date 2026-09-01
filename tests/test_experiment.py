@@ -84,6 +84,7 @@ def test_2d_mesh():
     pass
 
 
+@only_dls_file_system
 def test_i16_vortex_multiplot():
     #exp = Experiment('/dls/i16/data/2026/mm43750-1', instrument='i16')
     exp = Experiment('/dls/science/groups/das/ExampleData/i16/vortex_2026', instrument='i16')
@@ -106,6 +107,7 @@ def test_i16_vortex_multiplot():
     assert data['x'].shape == (121, )
 
 
+@only_dls_file_system
 def test_experiment_file():
     exp = Experiment(DIR + '/i16/cm37262-1')
     filename = DIR + '/i16/cm37262-1/cm37262-1.h5'
