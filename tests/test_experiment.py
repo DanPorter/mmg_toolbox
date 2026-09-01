@@ -3,7 +3,9 @@ mmg_toolbox tests
 Test experiment folder functions
 """
 
+import os
 import numpy as np
+import h5py
 from pytest import approx
 from mmg_toolbox.utils.experiment import Experiment
 from mmg_toolbox.nexus.nexus_scan import NexusScan, NexusDataHolder
@@ -83,7 +85,8 @@ def test_2d_mesh():
 
 
 def test_i16_vortex_multiplot():
-    exp = Experiment('/dls/i16/data/2026/mm43750-1', instrument='i16')
+    #exp = Experiment('/dls/i16/data/2026/mm43750-1', instrument='i16')
+    exp = Experiment('/dls/science/groups/das/ExampleData/i16/vortex_2026', instrument='i16')
     exp.add_roi('xsp3_roi1', '1', '915', 2, 126, 'xsp3')
     exp.add_roi('xsp3_roi2', '1', '755', 2, 116, 'xsp3')
     exp.add_roi('xsp3_roi3', '1', '1104', 2, 135, 'xsp3')
@@ -103,7 +106,14 @@ def test_i16_vortex_multiplot():
     assert data['x'].shape == (121, )
 
 
+def test_experiment_file():
+    exp = Experiment(DIR + '/i16/cm37262-1')
+    filename = DIR + '/i16/cm37262-1/cm37262-1.h5'
 
+    if os.path.isfile(filename):
+        os.remove(filename)
+    exp.create_experiment_file(filename)
 
-
-
+    with h5py.File(filename) as hdf:
+        assert len(hdf) == 1332
+        assert isinstance(hdf['/1032123/measurement/ic1monitor'], h5py.Dataset)

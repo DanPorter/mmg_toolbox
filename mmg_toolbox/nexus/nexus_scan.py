@@ -456,6 +456,49 @@ class NexusScan(NexusLoader):
         with self.load_hdf() as hdf:
             return NXInstrumentModel(hdf)
 
+    def copy_file(self, new_filename: str, merge_links: bool = False, copy_linked_files: bool = False,
+                  merge_compression: str = 'gzip'):
+        """
+        Copy NeXus file to a new location, also copy the linked files
+        :param new_filename: new filename
+        :param merge_links: if True, copies any data from externally linked data files into the new file
+        :param copy_linked_files: if True, copies linked files to keep the same relative path.
+        :param merge_compression: compression algorithm for merged datasets, default is 'gzip'
+        :return: None
+        """
+        links = self.map.find_links()
+        with h5py.File(new_filename, 'w') as new_file, h5py.File(self.filename) as old_file:
+            for name, obj in old_file.items():
+                old_file.copy(name, new_file, name)
+
+            for link_path, link_filename in links.items():
+                if link_path in old_file:
+                    old_obj = old_file[link_path]
+                    link = old_file.get(link_path, getlink=True)
+                    if isinstance(link, h5py.ExternalLink):
+                        if merge_links:
+                            del new_file[link_path]
+                            dataset = new_file.create_dataset(link_path, data=old_obj[()],
+                                                              compression=merge_compression, compression_opts=7)
+                            dataset.attrs.update(old_obj.attrs)
+                        elif copy_linked_files:
+                            if not os.path.isabs(link_filename):
+                                old_link_filename = os.path.join(os.path.dirname(self.filename), link_filename)
+                                new_link_filename = os.path.join(os.path.dirname(new_filename), link_filename)
+                                if os.path.isfile(old_link_filename):
+                                    from shutil import copyfile
+                                    copyfile(old_link_filename, new_link_filename)
+                                    print(f"Copied '{new_link_filename}'.")
+                                else:
+                                    print(f"Linked file {old_link_filename} does not exist")
+                            else:
+                                print(f"Linked file '{link_filename}' has absolute path, skipping")
+                        else:
+                            # check link works
+                            if new_file.get(link_path) is None:
+                                print(f"Warning: path '{link_path}' can't find external file '{link.filename}'.",
+                                      "use copy_file(..., merge_links=True) instead.")
+
     def save(self, filename: str):
         """Save object as HDF5 file"""
         from mmg_toolbox import __version__

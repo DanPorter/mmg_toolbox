@@ -503,3 +503,44 @@ class Experiment:
         """
         add_roi(self.config, name, cen_i, cen_j, wid_i, wid_j, image_name)
 
+    def copy_files(self, new_directory: str, *scan_files: ScanFile,
+                   merge_links: bool = False, merge_compression: str = 'gzip'):
+        """
+        Copy files into a new directory, along with linked data.
+
+        :param new_directory: new directory to copy files to
+        :param scan_files: list of scan files to copy, as filename or scan number.
+        :param merge_links: if True, copies any data from externally linked data files into the new file
+        :param merge_compression: compression algorithm for merged datasets, default is 'gzip'
+        :return: None
+        """
+        scans = self.scans(*scan_files)
+        for scan in scans:
+            scan.copy_file(
+                new_filename=os.path.join(new_directory, os.path.basename(scan.filename)),
+                merge_links=merge_links,
+                copy_linked_files=not merge_links,
+                merge_compression=merge_compression
+            )
+
+    def create_experiment_file(self, name: str | None = None, *scan_files: ScanFile):
+        """
+        Create an experiment file in the current directory
+
+        An experiment file contains links to every scan file
+
+        :param name: name of the output file
+        :param scan_files: list of scan files or scan numbers (blank for all scans)
+        :return:
+        """
+        import h5py
+        from ..nexus.nexus_writer import add_entry_links
+        if name is None:
+            name = os.path.basename(self.folder_paths[0])
+        folder = os.path.dirname(name) or self.folder_paths[0]
+        name, ext = os.path.splitext(name)
+        filename = os.path.join(folder, name + (ext or '.h5'))
+        print(f"Creating experiment file: {filename}")
+        all_scan_files = [scan.filename for scan in self.scans(*scan_files)]
+        with h5py.File(filename, 'w') as f:
+            add_entry_links(f, *all_scan_files)

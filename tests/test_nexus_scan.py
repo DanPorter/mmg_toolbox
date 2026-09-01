@@ -129,3 +129,50 @@ def test_save_load_nxdata():
         assert len(h['NexusScan/data']) == 5
 
     os.remove('test_nexus_scan.nxs')
+
+
+@only_dls_file_system
+def test_copy_file():
+    f = DIR + '/i16/1109527.nxs'
+    scan = NexusScan(f)
+
+    if os.path.isfile('test_copy_1109527.nxs'):
+        print("test_copy_1109527.nxs exists - removing")
+        os.remove('test_copy_1109527.nxs')
+    if os.path.isfile('1109527-pilatus3_100k.hdf'):
+        print("1109527-pilatus3_100k.hdf exists - removing")
+        os.remove('1109527-pilatus3_100k.hdf')
+
+    original_file_size = os.path.getsize(f)
+    links = scan.map.find_links()
+    original_additional_size = sum([os.path.getsize(DIR + '/i16/' + ff) for ff in links.values()])
+    print(f"Original file is {original_file_size*1e-6:.2f} MB, +  {original_additional_size*1e-6:.2f} MB in {len(links)} linked files.")
+
+    # copy linked files
+    scan.copy_file('test_copy_1109527.nxs', copy_linked_files=True)
+    new_file_size = os.path.getsize('test_copy_1109527.nxs')
+    print(f"New file (copy links) is {new_file_size*1e-6:.2f} MB")
+
+    with h5py.File('test_copy_1109527.nxs', 'r') as h:
+        assert '/entry/instrument/pil3_100k/data' in h
+        assert isinstance(h['/entry/instrument/pil3_100k/data'], h5py.Dataset)
+
+    # Merge & compress linked files
+    if os.path.isfile('test_copy_1109527_merge.nxs'):
+        print("test_copy_1109527_merge.nxs exists - removing")
+        os.remove('test_copy_1109527_merge.nxs')
+    scan.copy_file('test_copy_1109527_merge.nxs', merge_links=True)
+    new_file_size = os.path.getsize('test_copy_1109527_merge.nxs')
+    print(f"New file (with merge) is {new_file_size * 1e-6:.2f} MB")
+
+    with h5py.File('test_copy_1109527_merge.nxs', 'r') as h:
+        dataset = h['/entry/instrument/pil3_100k/data']
+        assert isinstance(dataset, h5py.Dataset)
+        assert dataset[-1].shape == (195, 487)
+        assert dataset.attrs['signal'] == 1
+        assert new_file_size < 0.2 * (original_file_size + original_additional_size)  # compression makes this much smaller
+        assert scan.image(0) == approx(dataset[0])  # lossless compression
+
+    os.remove('test_copy_1109527_merge.nxs')
+    os.remove('1109527-pilatus3_100k.hdf')
+    os.remove('test_copy_1109527.nxs')
