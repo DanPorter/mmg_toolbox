@@ -11,6 +11,7 @@ Source          | <https://github.com/DiamondLightSource/mmg_toolbox>
 PyPI            | `pip install mmg_toolbox`
 Documentation   | <https://diamondlightsource.github.io/mmg_toolbox>
 Releases        | <https://github.com/DiamondLightSource/mmg_toolbox/releases>
+Conda           | <https://github.com/conda-forge/hdfmap-feedstock>
 
 
 ### Installation
